@@ -64,7 +64,7 @@ export default function LevelPlayer({ levelId }: { levelId: string }) {
 
   const startRobot = (): RobotState => ({
     pos: level.world === "robot" ? level.start : 0,
-    facing: level.world === "robot" && level.ball < level.start ? -1 : 1,
+    facing: level.world === "robot" && level.path[0] < level.start ? -1 : 1,
     hop: 0,
     dur: 500,
     falling: false,
@@ -259,6 +259,7 @@ export default function LevelPlayer({ levelId }: { levelId: string }) {
     }
 
     sfx.land();
+    if (level.gems?.includes(v)) sfx.pop();
     setVisited((s) => new Set(s).add(v));
     await sleep(360 / sp);
     return tokenRef.current === token;

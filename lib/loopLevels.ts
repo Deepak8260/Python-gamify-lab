@@ -2,8 +2,10 @@
  * Loop Lab levels.
  *
  * Track 1 — "Robo's Bridge" (for loops): the robot jumps to every block
- *   number the student prints. You know exactly how many jumps are needed,
- *   so it's counting work: a for loop.
+ *   number the student prints. Each level adds a new twist (water, cracked
+ *   blocks, gems, islands, growing leaps, zigzags) so the student has to
+ *   work out which tool fits: range() arguments, a calculation, an if,
+ *   two loops in a row, a loop inside a loop, or a running total.
  * Track 2 — "Rocket Launch" (while loops): pump fuel UNTIL the rocket is
  *   ready. You repeat until a condition changes: a while loop.
  *
@@ -21,6 +23,8 @@ type Base = {
   hints: string[];
   loop: "for" | "while";
   maxPrints: number;
+  /** Python words the student may not use on this level, e.g. ["if"] */
+  banned?: string[];
 };
 
 export type RobotLevel = Base & {
@@ -29,6 +33,9 @@ export type RobotLevel = Base & {
   ball: number;
   path: number[]; // the blocks Robo must land on, in order (last one holds the ball)
   tiles: number[]; // every position that has solid ground
+  cracked?: number[]; // broken blocks: shown, but Robo falls through them
+  gems?: number[]; // gems sitting on the path, collected when Robo lands there
+  scene?: "day" | "sunset" | "night";
 };
 
 export type GaugeLevel = Base & {
@@ -58,6 +65,7 @@ const span = (a: number, b: number) => Array.from({ length: b - a + 1 }, (_, k) 
 
 const ROBOT_RULE = "Robo jumps to the block number you print()";
 const ONE_PRINT = "You may write print() only once";
+const NO_IF = "You may not use if";
 
 export const LOOP_LEVELS: Level[] = [
   {
@@ -78,54 +86,20 @@ export const LOOP_LEVELS: Level[] = [
     tiles: span(-6, 11),
   },
   {
-    id: "long-bridge",
-    world: "robot",
-    title: "The Long Bridge",
-    loop: "for",
-    goal: "This bridge is longer. The ball is waiting on the very last block.",
-    rules: [ROBOT_RULE, "Step on every block, no skipping", ONE_PRINT],
-    hints: [
-      "Count the blocks from 0 up to the ball. How many jumps is that?",
-      "Your loop from the last level is almost right. Only one number needs to change.",
-    ],
-    maxPrints: 1,
-    start: -1,
-    ball: 7,
-    path: span(0, 7),
-    tiles: span(-6, 13),
-  },
-  {
-    id: "behind-you",
-    world: "robot",
-    title: "Behind You!",
-    loop: "for",
-    goal: "Oops, the ball rolled the other way. It's behind Robo now.",
-    rules: [ROBOT_RULE, "Step on every block, no skipping", ONE_PRINT],
-    hints: [
-      "Read the numbers on the blocks behind Robo: -1, -2, -3, -4, -5.",
-      "A minus sign in front of your counting variable flips it. Careful: what's the first number your loop counts?",
-    ],
-    maxPrints: 1,
-    start: 0,
-    ball: -5,
-    path: [-1, -2, -3, -4, -5],
-    tiles: span(-10, 5),
-  },
-  {
     id: "halfway",
     world: "robot",
     title: "Halfway There",
     loop: "for",
-    goal: "Robo has already crossed part of the bridge and is standing on block 2. Finish the job.",
+    goal: "Robo has already crossed part of the bridge and is standing on block 1. Finish the job.",
     rules: [ROBOT_RULE, "Step on every block, no skipping", ONE_PRINT],
     hints: [
-      "Robo needs to hear 3, 4, 5, 6, 7 and 8.",
+      "Robo needs to hear 2, 3, 4, 5, 6, 7 and 8.",
       "range() doesn't have to start at 0. You can tell it where to start and where to stop.",
     ],
     maxPrints: 1,
-    start: 2,
+    start: 1,
     ball: 8,
-    path: span(3, 8),
+    path: span(2, 8),
     tiles: span(-3, 13),
   },
   {
@@ -136,14 +110,14 @@ export const LOOP_LEVELS: Level[] = [
     goal: "The bridge washed away! Only a few stones are left above the water. Reach the ball without a splash.",
     rules: [ROBOT_RULE, "Land only on stones, never in the water", ONE_PRINT],
     hints: [
-      "Look at the stone numbers: 2, 4, 6, 8, 10. What pattern do you see?",
-      "You can multiply your loop variable, or give range() a step size as a third number.",
+      "Look at the stone numbers: 3, 6, 9, 12, 15. What pattern do you see?",
+      "range() can take a third number: how big each step is.",
     ],
     maxPrints: 1,
     start: 0,
-    ball: 10,
-    path: [2, 4, 6, 8, 10],
-    tiles: [0, 2, 4, 6, 8, 10],
+    ball: 15,
+    path: [3, 6, 9, 12, 15],
+    tiles: [0, 3, 6, 9, 12, 15],
   },
   {
     id: "race-home",
@@ -161,6 +135,120 @@ export const LOOP_LEVELS: Level[] = [
     ball: 0,
     path: [6, 5, 4, 3, 2, 1, 0],
     tiles: span(-4, 11),
+    scene: "sunset",
+  },
+  {
+    id: "cracked-bridge",
+    world: "robot",
+    title: "Cracked Bridge",
+    loop: "for",
+    goal: "Some blocks on this old bridge are cracked. Step on every good block, but never on a cracked one.",
+    rules: [ROBOT_RULE, "Step on every good block, in order", "Cracked blocks break under Robo", ONE_PRINT],
+    hints: [
+      "The cracked blocks are 3, 6, 9 and 12. What do those numbers have in common?",
+      "Your loop can count every block, and decide each time round whether Robo should jump there. % gives the remainder after dividing.",
+    ],
+    maxPrints: 1,
+    start: 0,
+    ball: 13,
+    path: [1, 2, 4, 5, 7, 8, 10, 11, 13],
+    tiles: [...span(-3, 2), 4, 5, 7, 8, 10, 11, 13, 14, 15],
+    cracked: [3, 6, 9, 12],
+    scene: "sunset",
+  },
+  {
+    id: "square-stones",
+    world: "robot",
+    title: "Square Stones",
+    loop: "for",
+    goal: "These stones get further and further apart. Hop across the river to the ball.",
+    rules: [ROBOT_RULE, "Land only on stones, never in the water", ONE_PRINT],
+    hints: [
+      "The stones are 1, 4, 9, 16 and 25. Try 1 × 1, 2 × 2, 3 × 3…",
+      "print() can print a calculation that uses your loop variable, not just the variable itself.",
+    ],
+    maxPrints: 1,
+    start: 0,
+    ball: 25,
+    path: [1, 4, 9, 16, 25],
+    tiles: [0, 1, 4, 9, 16, 25],
+  },
+  {
+    id: "there-and-back",
+    world: "robot",
+    title: "There and Back",
+    loop: "for",
+    goal: "A gem is sitting on block 5. Grab it first, then turn round and carry it all the way to the ball on block -3.",
+    rules: [ROBOT_RULE, "Step on every block, no skipping", "Get the gem before the ball", "You may write print() at most twice"],
+    hints: [
+      "This is two trips: 1 up to 5, then 4 back down to -3.",
+      "Nothing stops you from writing one loop after another.",
+    ],
+    maxPrints: 2,
+    start: 0,
+    ball: -3,
+    path: [...span(1, 5), ...[4, 3, 2, 1, 0, -1, -2, -3]],
+    tiles: span(-7, 9),
+    gems: [5],
+  },
+  {
+    id: "island-hopping",
+    world: "robot",
+    title: "Island Hopping",
+    loop: "for",
+    goal: "Three little islands, three stones each. Robo must step on every stone of every island.",
+    rules: [ROBOT_RULE, "Land only on stones, never in the water", ONE_PRINT, NO_IF],
+    hints: [
+      "The islands start at 1, 6 and 11. On each island Robo takes 3 steps.",
+      "One loop can count the islands while another loop, inside it, counts the stones on that island.",
+    ],
+    maxPrints: 1,
+    banned: ["if"],
+    start: 0,
+    ball: 13,
+    path: [1, 2, 3, 6, 7, 8, 11, 12, 13],
+    tiles: [0, 1, 2, 3, 6, 7, 8, 11, 12, 13],
+    scene: "night",
+  },
+  {
+    id: "growing-leaps",
+    world: "robot",
+    title: "Growing Leaps",
+    loop: "for",
+    goal: "Robo's jumps get longer every time: 1 block, then 2, then 3… Collect all the gems on the way to the ball.",
+    rules: [ROBOT_RULE, "Land only on stones, never in the water", ONE_PRINT, NO_IF],
+    hints: [
+      "The stones are 1, 3, 6, 10, 15 and 21. Look at the gaps between them: 1, 2, 3, 4, 5, 6.",
+      "Keep a variable for where Robo is. Each time round, add the loop counter to it.",
+    ],
+    maxPrints: 1,
+    banned: ["if"],
+    start: 0,
+    ball: 21,
+    path: [1, 3, 6, 10, 15, 21],
+    tiles: [0, 1, 3, 6, 10, 15, 21],
+    gems: [3, 10],
+    scene: "sunset",
+  },
+  {
+    id: "zigzag",
+    world: "robot",
+    title: "Zigzag",
+    loop: "for",
+    goal: "The ball is on block 7, but the bridge is wobbly. Robo must swing from side to side: 1, then -2, then 3, then -4… until block 7.",
+    rules: [ROBOT_RULE, "Follow the zigzag exactly", ONE_PRINT, NO_IF],
+    hints: [
+      "Forget the minus signs for a moment: the numbers are just 1 to 7. Only the side changes.",
+      "Keep a variable that flips between 1 and -1 each time round, and multiply by it.",
+    ],
+    maxPrints: 1,
+    banned: ["if"],
+    start: 0,
+    ball: 7,
+    path: [1, -2, 3, -4, 5, -6, 7],
+    tiles: span(-9, 10),
+    gems: [-6],
+    scene: "night",
   },
   {
     id: "fuel-up",
@@ -355,7 +443,20 @@ function loopCheck(level: Level, res: RunResult, path: string | undefined): Resu
       kind: "fail",
       mood: "rule",
       title: "Too many print()s",
-      message: `It worked, but your code has print() ${res.printCalls} times, and only ${level.maxPrints} is allowed. Find a way to repeat one print().`,
+      message:
+        level.maxPrints === 1
+          ? `It worked, but your code has print() ${res.printCalls} times, and only 1 is allowed. Find a way to repeat one print().`
+          : `It worked, but your code has print() ${res.printCalls} times, and only ${level.maxPrints} are allowed.`,
+      path,
+    };
+  }
+  const banned = level.banned?.find((w) => res.names.includes(w));
+  if (banned) {
+    return {
+      kind: "fail",
+      mood: "rule",
+      title: `No ${banned} allowed`,
+      message: `It worked, but this level doesn't allow ${banned}. There's another way to get the same numbers. Think about how the loops or the maths could do the work.`,
       path,
     };
   }
@@ -398,7 +499,10 @@ export function judgeRobot(level: RobotLevel, res: RunResult, out: PlayOutcome):
     const hasWater = level.tiles.length !== hi - lo + 1;
     let title = "Whoops, off the edge!";
     let message = `You printed ${fmt(f)}, so Robo tried to jump to block ${fmt(f)}, and that's off the end of the world.`;
-    if (inside && hasWater) {
+    if (level.cracked?.includes(f)) {
+      title = "Crack!";
+      message = `Block ${fmt(f)} was cracked, and it broke under Robo. Your loop has to skip the cracked blocks.`;
+    } else if (inside && hasWater) {
       title = "Splash!";
       message = `There's no stone at ${fmt(f)}, only water. Robo can only land on the stones.`;
     } else if (inside) {
@@ -422,7 +526,6 @@ export function judgeRobot(level: RobotLevel, res: RunResult, out: PlayOutcome):
     );
   }
 
-  const towards = Math.sign(level.ball - level.start);
   const last = nums[nums.length - 1];
 
   if (k === -1 && nums.length < exp.length) {
@@ -448,12 +551,12 @@ export function judgeRobot(level: RobotLevel, res: RunResult, out: PlayOutcome):
   const got = nums[k];
   const prev = k === 0 ? level.start : nums[k - 1];
   const want = exp[k];
-  if (Math.sign(got - prev) === -towards) {
+  if (Math.sign(got - prev) === -Math.sign(want - prev)) {
     return {
       kind: "fail",
       mood: "wrong-way",
       title: "Wrong way!",
-      message: `On jump ${k + 1}, Robo went to block ${fmt(got)}, away from the ball. The ball is on block ${level.ball}.`,
+      message: `On jump ${k + 1}, Robo went to block ${fmt(got)}, but the next block was ${fmt(want)}, the other way.`,
       path,
     };
   }
@@ -479,7 +582,7 @@ export function judgeRobot(level: RobotLevel, res: RunResult, out: PlayOutcome):
     kind: "fail",
     mood: "long",
     title: Math.abs(got - prev) > Math.abs(want - prev) ? "You skipped a block" : "Wrong block",
-    message: `On jump ${k + 1}, Robo went to block ${fmt(got)}, but block ${fmt(want)} was next. Robo has to step on every block in order.`,
+    message: `On jump ${k + 1}, Robo went to block ${fmt(got)}, but block ${fmt(want)} was next. Robo has to land on the right blocks, in order.`,
     path,
   };
 }

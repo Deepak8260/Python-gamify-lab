@@ -23,7 +23,7 @@ export const LABS: Lab[] = [
     status: "live",
     accent: "#6366f1",
     emoji: "🔁",
-    levels: 11,
+    levels: 15,
   },
   {
     slug: "variables",

@@ -611,6 +611,8 @@ export type RunResult = {
   usedWhile: boolean;
   /** how many times print( appears in the source code */
   printCalls: number;
+  /** every name/keyword that appears in the source code (for, if, range, ...) */
+  names: string[];
   /** the program ran too long (infinite loop or too many prints) */
   runaway: boolean;
 };
@@ -978,18 +980,21 @@ export function runPython(src: string): RunResult {
   let usedFor = false;
   let usedWhile = false;
   let printCalls = 0;
+  let names: string[] = [];
   const done = (error: PyError | null): RunResult => ({
     events: m.events,
     error,
     usedFor,
     usedWhile,
     printCalls,
+    names,
     runaway: m.runaway,
   });
   try {
     const toks = tokenize(src);
     usedFor = toks.some((t) => t.type === "name" && t.value === "for");
     usedWhile = toks.some((t) => t.type === "name" && t.value === "while");
+    names = [...new Set(toks.flatMap((t) => (t.type === "name" ? [t.value] : [])))];
     printCalls = toks.filter((t, k) => t.type === "name" && t.value === "print" && toks[k + 1]?.type === "op" && toks[k + 1].value === "(").length;
     const lines = src.replace(/\r\n?/g, "\n").split("\n");
     const prog = new Parser(toks, lines).program();

@@ -169,7 +169,7 @@ code, kbd, .mono {
 }
 .tile.stone { opacity: .75; }
 .tile.block { --top: #a5b4fc; --front: #6366f1; --txt: #ffffff; }
-.tile.start { --top: #99f6e4; --front: #14b8a6; --txt: #ffffff; }
+.tile.start { --top: #86efac; --front: #22c55e; --txt: #ffffff; }
 .tile.goal  { --top: #fde68a; --front: #f59e0b; --txt: #ffffff; }
 .tile.lit .tile-top {
   background: linear-gradient(180deg, #fff9c4, #fde047);
@@ -818,4 +818,79 @@ a.btn { text-decoration: none; }
   .hud { font-size: 13px; }
   .hud-var { font-size: 13px; }
   .hud-check code { font-size: 12px; }
+}
+
+/* ---------- robot world: cracked blocks, gems, scenes ---------- */
+.tile.cracked { --top: #d6c7b4; --front: #a8906f; --txt: #fff7ed; }
+.tile.cracked .tile-top,
+.tile.cracked .tile-front { position: relative; overflow: hidden; }
+.tile.cracked .tile-front::before {
+  content: ""; position: absolute; inset: 0;
+  background:
+    linear-gradient(115deg, transparent 44%, rgba(41, 24, 8, .75) 45% 49%, transparent 50%),
+    linear-gradient(65deg, transparent 60%, rgba(41, 24, 8, .6) 61% 64%, transparent 65%);
+}
+.tile.cracked .tile-top::after {
+  content: ""; position: absolute; left: 30%; top: 0; bottom: 0; width: 3px;
+  background: rgba(41, 24, 8, .55); transform: skewX(-25deg);
+}
+
+.gem-wrap {
+  position: absolute; top: calc(var(--u) * -0.62);
+  transform: translateX(-50%);
+  z-index: 4;
+}
+.gem {
+  width: calc(var(--u) * 0.34); height: calc(var(--u) * 0.34);
+  background: linear-gradient(135deg, #a5f3fc 0%, #22d3ee 40%, #0e7490 100%);
+  transform: rotate(45deg);
+  border-radius: 4px;
+  box-shadow: 0 0 14px 2px rgba(34, 211, 238, .55), inset 3px 3px 0 rgba(255, 255, 255, .6);
+  animation: gem-bob 1.6s ease-in-out infinite;
+}
+@keyframes gem-bob { 50% { transform: rotate(45deg) translate(-3px, -3px); } }
+.gem-wrap.got .gem { animation: gem-got .6s ease-out forwards; }
+@keyframes gem-got {
+  40% { transform: rotate(225deg) scale(1.4); opacity: 1; }
+  100% { transform: rotate(405deg) scale(.2) translate(-20px, -20px); opacity: 0; }
+}
+
+.robot-world .stars { position: absolute; inset: 0 0 45% 0; }
+
+.robot-world.scene-sunset .sky { background: linear-gradient(180deg, #fdba74 0%, #fed7aa 45%, #fef3c7 100%); }
+.robot-world.scene-sunset .sun {
+  top: auto; bottom: 40%; width: 90px; height: 90px;
+  background: radial-gradient(circle, #fff7ed 0%, #fb923c 50%, rgba(251, 146, 60, 0) 72%);
+}
+.robot-world.scene-sunset .cloud,
+.robot-world.scene-sunset .cloud::before,
+.robot-world.scene-sunset .cloud::after { background: #ffedd5; }
+.robot-world.scene-sunset .hills path:first-child { fill: #fcd9b6; }
+.robot-world.scene-sunset .hills path:last-child { fill: #f5c49a; }
+.robot-world.scene-sunset .water {
+  background:
+    repeating-linear-gradient(90deg, rgba(255,255,255,.2) 0 18px, transparent 18px 46px),
+    linear-gradient(180deg, #fdba74, #60a5fa 35%, #1d4ed8);
+}
+
+.robot-world.scene-night { border-color: #312e81; }
+.robot-world.scene-night .sky { background: linear-gradient(180deg, #0b1026 0%, #1e1b4b 55%, #3b2f7a 100%); }
+.robot-world.scene-night .sun {
+  width: 54px; height: 54px;
+  background: radial-gradient(circle at 60% 40%, #fefce8 0%, #fde68a 60%, rgba(253, 230, 138, 0) 72%);
+  box-shadow: 0 0 40px 6px rgba(253, 230, 138, .25);
+}
+.robot-world.scene-night .cloud { opacity: .15; }
+.robot-world.scene-night .hills path:first-child { fill: #2e2a63; }
+.robot-world.scene-night .hills path:last-child { fill: #221f4d; }
+.robot-world.scene-night .water {
+  background:
+    repeating-linear-gradient(90deg, rgba(255,255,255,.08) 0 18px, transparent 18px 46px),
+    linear-gradient(180deg, #1e3a8a, #172554 60%, #0b1026);
+}
+.robot-world.scene-night .tile-cap { color: #c7d2fe; }
+.robot-world.scene-night .water-mark { color: rgba(199, 210, 254, .45); }
+
+@media (prefers-reduced-motion: reduce) {
+  .gem { animation: none; }
 }

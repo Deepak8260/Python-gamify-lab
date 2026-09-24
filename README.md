@@ -3,33 +3,41 @@
 Learn Python by playing. Each **lab** is a small game where the student's real Python code controls what happens.
 
 - **Home** (`/`): all labs. Loop Lab is playable; the others show as "coming soon".
-- **Loop Lab** (`/labs/loops`): 11 levels in two tracks, unlocked one after another.
+- **Loop Lab** (`/labs/loops`): 15 levels in two tracks, unlocked one after another.
 - **Levels** (`/labs/loops/<level>`): the game, a code editor and an output console.
 
 ## Loop Lab
 
 ### Track 1: Robo's Bridge (for loops)
-Robo jumps to every block number the code prints. You always know how many jumps are needed, so this is counting work.
+Robo jumps to every block number the code prints. Every level adds a new twist, so the student has to
+work out which tool fits instead of just changing a number.
 
-| # | Level | What it teaches |
-|---|---|---|
-| 1 | First Steps | repeat 5 times, `range(5)` |
-| 2 | The Long Bridge | changing the count |
-| 3 | Behind You! | going backwards, negative numbers |
-| 4 | Halfway There | `range(start, stop)` |
-| 5 | Stepping Stones | step size (stones over water) |
-| 6 | Race Home | counting down |
+| # | Level | Twist | What it makes you think about |
+|---|---|---|---|
+| 1 | First Steps | a plain bridge | repeat 5 times, `range(5)` |
+| 2 | Halfway There | Robo starts mid-bridge | `range(start, stop)` |
+| 3 | Stepping Stones | stones over water | step size |
+| 4 | Race Home | ball is behind Robo (sunset) | counting down |
+| 5 | Cracked Bridge | cracked blocks break | `if` inside a loop, `%` |
+| 6 | Square Stones | gaps keep growing | printing a calculation (`i * i`) |
+| 7 | There and Back | grab a gem, then turn round | two loops one after another |
+| 8 | Island Hopping | groups of stones, no `if` allowed (night) | a loop inside a loop |
+| 9 | Growing Leaps | each jump is one longer, gems, no `if` | a running total |
+| 10 | Zigzag | swing from side to side, no `if` (night) | a variable that flips sign |
+
+Levels can ban Python words (`banned: ["if"]`) and limit the number of `print()` calls, which pushes the
+student towards a different idea than the one they used before.
 
 ### Track 2: Rocket Launch (while loops)
 Pump fuel **until** the rocket is ready. You repeat until a condition changes.
 
 | # | Level | What it teaches |
 |---|---|---|
-| 7 | Fuel Up | `while value < target` |
-| 8 | Rusty Pump | when you can't easily count the repeats |
-| 9 | Top Up | starting from a value other than 0 |
-| 10 | Turbo Boost | multiplying (`*=`) |
-| 11 | Cool Down | a value that goes down, `>=` conditions |
+| 11 | Fuel Up | `while value < target` |
+| 12 | Rusty Pump | when you can't easily count the repeats |
+| 13 | Top Up | starting from a value other than 0 |
+| 14 | Turbo Boost | multiplying (`*=`) |
+| 15 | Cool Down | a value that goes down, `>=` conditions |
 
 The level text only gives the goal and the rules (for example "you may write `print()` only once").
 It never says which loop to use. Hints unlock one at a time.

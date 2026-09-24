@@ -42,11 +42,16 @@ export default function RobotWorld({ level, robot, visited, bubble, ballGot, hud
   const hasWater = level.tiles.length !== hi - lo + 1;
   const tileSet = new Set(level.tiles);
   const pathSet = new Set(level.path);
+  const cracked = new Set(level.cracked ?? []);
+  const gems = level.gems ?? [];
+  const scene = level.scene ?? "day";
 
-  // one block in pixels: fit the start, the path and a little margin
-  const need = Math.abs(level.ball - level.start) + 3.4;
+  // one block in pixels: fit the start, the whole route and a little margin
+  const left = Math.min(level.start, ...level.path);
+  const right = Math.max(level.start, ...level.path);
+  const need = right - left + 3.4;
   const u = Math.max(38, Math.min(92, w / need));
-  const home = (level.start + level.ball) / 2;
+  const home = (left + right) / 2;
   const half = w / u / 2 - 0.9;
   let cam = home;
   if (robot.pos > home + half) cam = robot.pos - half;
@@ -59,11 +64,18 @@ export default function RobotWorld({ level, robot, visited, bubble, ballGot, hud
   return (
     <div
       ref={ref}
-      className={`world robot-world ${hasWater ? "has-water" : ""}`}
+      className={`world robot-world scene-${scene} ${hasWater ? "has-water" : ""}`}
       style={{ ["--u" as string]: `${u}px`, ["--move" as string]: `${robot.dur}ms` }}
     >
       <div className="sky" />
       <div className="sun" />
+      {scene === "night" && (
+        <div className="stars" aria-hidden>
+          {STARS.map(([x, y], k) => (
+            <i key={k} style={{ left: `${x}%`, top: `${y}%`, animationDelay: `${(k % 5) * 0.6}s` }} />
+          ))}
+        </div>
+      )}
       <div className="cloud c1" />
       <div className="cloud c2" />
       {!hasWater && (
@@ -76,6 +88,16 @@ export default function RobotWorld({ level, robot, visited, bubble, ballGot, hud
 
       <div className="stage" style={{ transform: `translateX(${shift}px)` }}>
         {positions.map((x) => {
+          if (cracked.has(x)) {
+            return (
+              <div key={x} className="tile cracked" style={{ left: `calc(${x} * var(--u))` }}>
+                <div className="tile-top" />
+                <div className="tile-front">
+                  <span>{x}</span>
+                </div>
+              </div>
+            );
+          }
           if (!tileSet.has(x)) {
             return hasWater ? (
               <div key={x} className="water-mark" style={{ left: `calc(${x} * var(--u))` }}>
@@ -94,6 +116,13 @@ export default function RobotWorld({ level, robot, visited, bubble, ballGot, hud
             </div>
           );
         })}
+
+        {/* gems, collected when Robo lands on them */}
+        {gems.map((g) => (
+          <div key={g} className={`gem-wrap ${visited.has(g) ? "got" : ""}`} style={{ left: `calc(${g} * var(--u))` }}>
+            <div className="gem" />
+          </div>
+        ))}
 
         {/* ball, sitting on the last block of the path */}
         <div
@@ -138,3 +167,8 @@ export default function RobotWorld({ level, robot, visited, bubble, ballGot, hud
     </div>
   );
 }
+
+// fixed star positions for night scenes, as [left %, top %]
+const STARS = [
+  [6, 12], [14, 30], [22, 8], [31, 22], [39, 6], [47, 28], [55, 14], [63, 5], [70, 24], [78, 10], [86, 30], [93, 16],
+];
