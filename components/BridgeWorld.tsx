@@ -141,7 +141,7 @@ export default function BridgeWorld({ scene, inputs, changed, hiker, broken, pic
 
       {/* what the game gives you */}
       <div className="given-card">
-        <div className="given-title">Given</div>
+        <div className="given-title">Set by the game</div>
         {Object.entries(i).map(([k, v]) => (
           <div key={k} className={`given-row ${changed.has(k) ? "changed" : ""}`}>
             <code>{k}</code>

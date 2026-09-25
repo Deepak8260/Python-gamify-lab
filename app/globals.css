@@ -1124,3 +1124,33 @@ a.btn { text-decoration: none; }
   .banner { top: 44px; font-size: 13px; }
   .bridge-label { left: -34px; }
 }
+
+/* ---------------- condition lab: level brief ---------------- */
+.brief-label { display: block; font-size: 11px; font-weight: 800; letter-spacing: .08em; text-transform: uppercase; color: #64748b; margin-bottom: 4px; }
+.brief-question { margin-top: 10px; background: #eef2ff; border: 1px solid #dcdffa; border-left: 4px solid var(--indigo); border-radius: 10px; padding: 8px 12px; }
+.brief-question .brief-label { color: #4338ca; }
+.task-text .brief-question p { color: #1e1b4b; font-size: 15px; font-weight: 600; margin: 0; }
+.brief-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(260px, 1fr)); gap: 8px; margin-top: 8px; }
+.brief-box { border: 1px solid #e3e8f0; border-radius: 10px; padding: 8px 12px; background: #fbfcfe; }
+.brief-box .given-list { margin: 0; flex-direction: column; gap: 4px; }
+.brief-reqs { margin: 0; padding-left: 18px; font-size: 13.5px; color: #334155; line-height: 1.6; }
+.brief-tests { margin-top: 8px; }
+.brief-tests ol { list-style: none; margin: 0; padding: 0; display: grid; gap: 4px; }
+.brief-tests li { display: flex; align-items: center; flex-wrap: wrap; gap: 6px 8px; font-size: 13px; padding: 4px 8px; border: 1px solid #eef1f6; border-radius: 8px; background: #fff; transition: background .2s, border-color .2s; }
+.task-text .brief-tests code { background: #f1f5f9; color: #0f172a; font-size: 12.5px; }
+
+.test-no { flex: none; width: 20px; height: 20px; border-radius: 50%; display: grid; place-items: center; font-size: 11px; font-weight: 800; background: #e2e8f0; color: #475569; }
+.test-arrow { color: #94a3b8; font-size: 12px; }
+.brief-tests li.test-now { border-color: #c7d2fe; background: #eef2ff; }
+.brief-tests li.test-now .test-no { background: var(--indigo); color: #fff; }
+.brief-tests li.test-ok { border-color: #bbf7d0; background: #f0fdf4; }
+.brief-tests li.test-ok .test-no { background: #22c55e; color: #fff; }
+.brief-tests li.test-bad { border-color: #fecaca; background: #fef2f2; }
+.brief-tests li.test-bad .test-no { background: #ef4444; color: #fff; }
+.result-passed { display: inline-block; margin: 4px 0 2px; font-size: 13px; font-weight: 700; color: #b45309; background: #fffbeb; border: 1px solid #fde68a; border-radius: 999px; padding: 3px 10px; }
+.brief-reqs li { list-style: disc; }
+.brief-reqs li::marker { color: #94a3b8; }
+.task-text .brief-question code { background: #fff; color: #4338ca; border: 1px solid #dcdffa; font-size: 13.5px; }
+.test-event { font-size: 12.5px; font-weight: 600; color: #475569; }
+.test-out { font-size: 13px; font-weight: 700; color: #047857; }
+.brief-note { font-size: 12.5px; color: #92400e; background: #fffbeb; border: 1px solid #fde68a; border-radius: 8px; padding: 4px 8px; margin: 0 0 6px !important; line-height: 1.45 !important; }

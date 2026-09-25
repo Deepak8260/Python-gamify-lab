@@ -30,12 +30,33 @@ type Result = {
   title: string;
   message: string;
   situation?: string;
+  passed?: number; // rounds passed before the one that failed
   emoji: string;
 };
 type Line = { text: string; kind: "round" | "print" | "assign" | "ok" | "bad" };
 
 const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
 const fmtVal = (v: boolean | number | string) => (typeof v === "boolean" ? (v ? "True" : "False") : typeof v === "string" ? `"${v}"` : String(v));
+/** The story part of a round event, without the "name: old → new" details. */
+const eventNote = (ev?: string) => {
+  const note = ev?.replace(/[.,]?\s*\w+: [^.]*$/, "").trim();
+  return note && /[a-z]/i.test(note) ? note : null;
+};
+
+/** What the hiker should do, in plain words (never the code that does it). */
+const expectText = (v: boolean | string, journey: boolean) =>
+  v === true ? (journey ? "🚶 walks on" : "🚶 crosses") : v === false || v === "wait" ? "✋ waits" : `🌉 takes Bridge ${v}`;
+
+/** Wraps variable names, True/False and "text" in <code> so the question is easy to scan. */
+function CodeText({ text, names }: { text: string; names: string[] }) {
+  const re = new RegExp(`(\\b\\w+ = (?:True|False|"[^"]*")|\\b(?:${[...names, "True", "False"].join("|")})\\b|"[^"]*")`, "g");
+  return (
+    <>
+      {text.split(re).map((part, k) => (k % 2 ? <code key={k}>{part}</code> : part))}
+    </>
+  );
+}
+
 const situation = (i: Inputs) => Object.entries(i).map(([k, v]) => `${k} = ${fmtVal(v)}`).join(",  ");
 
 export default function CondPlayer({ levelId }: { levelId: string }) {
@@ -47,7 +68,7 @@ export default function CondPlayer({ levelId }: { levelId: string }) {
   const doneSet = done(LAB);
   const preview = level.preview ?? level.rounds[0].inputs;
 
-  const starter = `# Decide what the hiker should do.\n# You can use: ${Object.keys(level.given).join(", ")}\n\n`;
+  const starter = `# The game already set: ${Object.keys(level.given).join(", ")}\n# Don't type their values. Just use their names.\n# Now decide what the hiker should do.\n\n`;
   const codeKey = `codeplay-code-${LAB}-${level.id}`;
   const [code, setCodeState] = useState(starter);
   const codeRef = useRef(starter);
@@ -169,18 +190,20 @@ export default function CondPlayer({ levelId }: { levelId: string }) {
       const ch = new Set(Object.keys(round.inputs).filter((k) => prev[k] !== round.inputs[k]));
       shownInputs.current = round.inputs;
       setMarks((m) => m.map((x, k) => (k === item.r ? "now" : x)));
-      setHiker({ ...homeHiker(), dur: 0 });
+      setHiker(level.journey && item.r > 0 ? (h) => ({ ...h, mode: "idle", say: null, dur: 0 }) : { ...homeHiker(), dur: 0 });
       setBroken(null);
       setPicked(null);
       setDecision(null);
       setActiveLine(null);
       setInputs(round.inputs);
       setChanged(ch);
-      if (level.rounds.length > 1) setLines((l) => [...l, { text: `Round ${item.r + 1}: ${situation(round.inputs)}`, kind: "round" }]);
-      if (round.event) {
-        setBanner({ text: round.event, key: Date.now() });
+      if (level.rounds.length > 1) setLines((l) => [...l, { text: `Test ${item.r + 1}: ${situation(round.inputs)}`, kind: "round" }]);
+      const many = level.rounds.length > 1;
+      const tag = many ? `Test ${item.r + 1} of ${level.rounds.length}` : "";
+      if (round.event || many) {
+        setBanner({ text: [tag, round.event].filter(Boolean).join(" · "), key: Date.now() });
         sfx.pop();
-        await sleep(Math.max(1100, 1800 / sp));
+        await sleep(round.event ? Math.max(1100, 1800 / sp) : Math.max(800, 1100 / sp));
         setBanner(null);
       } else {
         await sleep(350 / sp);
@@ -229,10 +252,16 @@ export default function CondPlayer({ levelId }: { levelId: string }) {
     const got = verdict.got;
     const walk = 1500 / sp;
     if (level.scene === "bridge") {
+      const target = level.journey?.[item.r] ?? END_X;
       if (got === true) {
         setHiker((h) => ({ ...h, say: null }));
-        if (!(await moveHiker({ x: 50, y: SINGLE_Y + 5, mode: "walk" }, walk, token))) return false;
-        if (good) {
+        if (good && target < 50) {
+          // walk on to the next stop, which is before the middle of the bridge
+          if (!(await moveHiker({ x: target, y: SINGLE_Y + 4, mode: "walk" }, walk, token))) return false;
+          setHiker((h) => ({ ...h, mode: "nod", say: "✓" }));
+          sfx.land();
+        } else if (!(await moveHiker({ x: 50, y: SINGLE_Y + 5, mode: "walk" }, (level.journey?.[item.r - 1] ?? START_X) > 30 ? walk / 2 : walk, token))) return false;
+        else if (good) {
           if (!(await moveHiker({ x: END_X, y: SINGLE_Y, mode: "walk" }, walk, token))) return false;
           setHiker((h) => ({ ...h, mode: "cheer", say: "✓" }));
           sfx.success();
@@ -244,7 +273,7 @@ export default function CondPlayer({ levelId }: { levelId: string }) {
         }
       } else {
         if (good) {
-          setHiker((h) => ({ ...h, mode: "nod", say: "Good call ✓" }));
+          setHiker((h) => ({ ...h, mode: "nod", say: level.journey && item.r > 0 ? "Waiting for repairs ✋" : "Good call ✓" }));
           sfx.land();
         } else {
           setHiker((h) => ({ ...h, mode: "sad", say: "It was safe… 😕" }));
@@ -298,7 +327,8 @@ export default function CondPlayer({ levelId }: { levelId: string }) {
           kind: "fail",
           title: v.title,
           message: v.message,
-          situation: `${level.rounds.length > 1 ? `Round ${last.r + 1} · ` : ""}${situation(round.inputs)}`,
+          situation: `${level.rounds.length > 1 ? `Test ${last.r + 1} · ` : ""}${situation(round.inputs)}`,
+          passed: last.r,
           emoji: v.kind === "missing" || v.kind === "type" ? "🤔" : v.title === "Splash!" ? "💦" : "🧭",
         };
       }
@@ -308,7 +338,7 @@ export default function CondPlayer({ levelId }: { levelId: string }) {
         r = {
           kind: "fail",
           title: "So close!",
-          message: `Your code sends the hiker across without checking anything. What if the bridge weren't safe? Make the decision depend on ${Object.keys(level.given)[0]}.`,
+          message: `Your code sends the hiker over without checking anything. What if the bridge was not safe? Let ${Object.keys(level.given)[0]} decide.`,
           emoji: "🤔",
         };
       } else {
@@ -316,9 +346,11 @@ export default function CondPlayer({ levelId }: { levelId: string }) {
           kind: "success",
           title: level.boss ? "Boss defeated!" : "Level complete!",
           message:
-            level.rounds.length > 1
-              ? `Your code made the right call in ${level.rounds.length === 2 ? "both" : `all ${level.rounds.length}`} situations.`
-              : "Your code checked the bridge and made the right call.",
+            level.journey
+              ? "The hiker got all the way across, and waited when the bridge was broken."
+              : level.rounds.length > 1
+              ? `Your code made the right choice in ${level.rounds.length === 2 ? "both" : `all ${level.rounds.length}`} tests.`
+              : "Your code checked the bridge and made the right choice.",
           emoji: level.boss ? "🏆" : "🎉",
         };
       }
@@ -388,10 +420,15 @@ export default function CondPlayer({ levelId }: { levelId: string }) {
           {result.emoji}
         </div>
         <h2>{result.title}</h2>
+        {!!result.passed && (
+          <div className="result-passed">
+            ✓ {result.passed === 1 ? "Test 1 passed" : `Tests 1–${result.passed} passed`}, but test {result.passed + 1} of {level.rounds.length} failed
+          </div>
+        )}
         <p>{result.message}</p>
         {result.situation && (
           <div className="result-path">
-            <span>situation</span> {result.situation}
+            <span>failed on</span> {result.situation}
           </div>
         )}
         {result.kind === "success" && <div className="xp">+{XP_PER_LEVEL} XP</div>}
@@ -457,6 +494,55 @@ export default function CondPlayer({ levelId }: { levelId: string }) {
         <div className="task-text">
           <h1>{level.title}</h1>
           <p>{level.goal}</p>
+
+          <div className="brief-question">
+            <span className="brief-label">What you need to do</span>
+            <p>{level.task}</p>
+          </div>
+
+          <div className="brief-grid">
+            <div className="brief-box">
+              <span className="brief-label">Values the game gives you</span>
+              <p className="brief-note">
+                The game already set these for you before your code runs. Don&apos;t type their values yourself, just use their names.
+                {level.rounds.length > 1 && " Their values are different in every test."}
+              </p>
+              <ul className="given-list">
+                {Object.entries(level.given).map(([k, v]) => (
+                  <li key={k}>
+                    <code>{k}</code> {v}
+                  </li>
+                ))}
+              </ul>
+            </div>
+            <div className="brief-box">
+              <span className="brief-label">Rules</span>
+              <ul className="brief-reqs">
+                <li>
+                  Give <code>{level.output.name}</code> a value:{" "}
+                  {level.output.name === "cross" ? (
+                    <>
+                      <code>True</code> means go, <code>False</code> means wait
+                    </>
+                  ) : (
+                    (level.output.choices ?? []).map((c, k, a) => (
+                      <span key={c}>
+                        <code>&quot;{c}&quot;</code>
+                        {k < a.length - 2 ? ", " : k === a.length - 2 ? " or " : ""}
+                      </span>
+                    ))
+                  )}
+                </li>
+                {level.rules.slice(1).map((r) => (
+                  <li key={r}>
+                    <CodeText text={r} names={[...Object.keys(level.given), level.output.name]} />
+                  </li>
+                ))}
+                {level.rounds.length > 1 && <li>Your code must pass all {level.rounds.length} tests below</li>}
+              </ul>
+            </div>
+          </div>
+
           {level.table && (
             <div className="rule-table">
               {level.table.title && <div className="rule-table-title">{level.table.title}</div>}
@@ -468,19 +554,23 @@ export default function CondPlayer({ levelId }: { levelId: string }) {
               ))}
             </div>
           )}
-          <ul className="rules">
-            {level.rules.map((r) => (
-              <li key={r}>{r}</li>
-            ))}
-            {level.rounds.length > 1 && <li className="rounds-chip">Your code runs {level.rounds.length} times, in different situations</li>}
-          </ul>
-          <ul className="given-list">
-            {Object.entries(level.given).map(([k, v]) => (
-              <li key={k}>
-                <code>{k}</code> {v}
-              </li>
-            ))}
-          </ul>
+
+          <div className="brief-tests">
+            <span className="brief-label">
+              {level.rounds.length > 1 ? `We test your code ${level.rounds.length} times, with different values` : "The test"}
+            </span>
+            <ol>
+              {level.rounds.map((round, k) => (
+                <li key={k} className={`test-${marks[k]}`}>
+                  <span className="test-no">{marks[k] === "ok" ? "✓" : marks[k] === "bad" ? "✗" : k + 1}</span>
+                  {eventNote(round.event) && <span className="test-event">{eventNote(round.event)}</span>}
+                  <code className="test-in">{situation(round.inputs)}</code>
+                  <span className="test-arrow">→ the hiker should</span>
+                  <span className="test-out">{expectText(level.solve(round.inputs), !!level.journey)}</span>
+                </li>
+              ))}
+            </ol>
+          </div>
           {hint >= 0 && (
             <div className="hint-text">
               {level.hints.slice(0, hint + 1).map((h, k) => (
@@ -551,7 +641,7 @@ export default function CondPlayer({ levelId }: { levelId: string }) {
           </div>
           <div className="console">
             {lines.length === 0 && !result && (
-              <p className="console-empty">Each situation, and every variable your code sets, shows up here.</p>
+              <p className="console-empty">Each test, and every value your code sets, will show here.</p>
             )}
             {lines.map((l, k) => (
               <div key={k} className={`console-line kind-${l.kind}`}>
