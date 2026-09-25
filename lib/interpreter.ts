@@ -34,14 +34,15 @@ type Tok =
   | { type: "name"; value: string; line: number }
   | { type: "op"; value: string; line: number }
   | { type: "newline" | "indent" | "dedent" | "eof"; value: string; line: number };
+type TokPos = { col?: number; end?: number };
 
 const OPS = [
   "**=", "//=", "**", "//", "==", "!=", "<=", ">=", "+=", "-=", "*=", "/=", "%=",
   "(", ")", "[", "]", ":", ",", "+", "-", "*", "/", "%", "<", ">", "=", ".",
 ];
 
-function tokenize(src: string): Tok[] {
-  const toks: Tok[] = [];
+function tokenize(src: string): (Tok & TokPos)[] {
+  const toks: (Tok & TokPos)[] = [];
   const lines = src.replace(/\r\n?/g, "\n").split("\n");
   const indents = [0];
 
@@ -92,7 +93,7 @@ function tokenize(src: string): Tok[] {
         }
         const text = raw.slice(i, j).replace(/_/g, "");
         const n = Number(text);
-        toks.push({ type: "num", value: isFloat ? new PyFloat(n) : n, line });
+        toks.push({ type: "num", value: isFloat ? new PyFloat(n) : n, line, col: i, end: j });
         i = j;
         continue;
       }
@@ -100,7 +101,7 @@ function tokenize(src: string): Tok[] {
       if (/[a-zA-Z_]/.test(c)) {
         let j = i;
         while (j < raw.length && /[a-zA-Z0-9_]/.test(raw[j])) j++;
-        toks.push({ type: "name", value: raw.slice(i, j), line });
+        toks.push({ type: "name", value: raw.slice(i, j), line, col: i, end: j });
         i = j;
         continue;
       }
@@ -120,14 +121,14 @@ function tokenize(src: string): Tok[] {
         if (j >= raw.length) {
           throw new PyError(`The text on line ${line} is missing its closing ${c} quote.`, line);
         }
-        toks.push({ type: "str", value: s, line });
+        toks.push({ type: "str", value: s, line, col: i, end: j + 1 });
         i = j + 1;
         continue;
       }
 
       const op = OPS.find((o) => raw.startsWith(o, i));
       if (op) {
-        toks.push({ type: "op", value: op, line });
+        toks.push({ type: "op", value: op, line, col: i, end: i + op.length });
         i += op.length;
         continue;
       }
@@ -149,7 +150,7 @@ function tokenize(src: string): Tok[] {
 /* Parser                                                              */
 /* ------------------------------------------------------------------ */
 
-type Expr =
+type Expr = (
   | { t: "lit"; v: Val }
   | { t: "name"; name: string; line: number }
   | { t: "bin"; op: string; l: Expr; r: Expr; line: number }
@@ -159,12 +160,13 @@ type Expr =
   | { t: "cmp"; ops: string[]; items: Expr[]; line: number }
   | { t: "call"; fn: string; args: Expr[]; kwargs: Record<string, Expr>; line: number }
   | { t: "list"; items: Expr[] }
-  | { t: "index"; target: Expr; index: Expr; line: number };
+  | { t: "index"; target: Expr; index: Expr; line: number }
+) & { src?: string };
 
 type Stmt =
   | { t: "for"; line: number; name: string; iter: Expr; body: Stmt[] }
   | { t: "while"; line: number; cond: Expr; condText: string; body: Stmt[] }
-  | { t: "if"; line: number; branches: { cond: Expr; body: Stmt[] }[]; orelse: Stmt[] | null }
+  | { t: "if"; line: number; branches: { cond: Expr; body: Stmt[]; line: number }[]; orelse: Stmt[] | null; elseLine: number }
   | { t: "assign"; line: number; name: string; op: string; value: Expr }
   | { t: "expr"; line: number; e: Expr }
   | { t: "pass" | "break" | "continue"; line: number };
@@ -177,7 +179,17 @@ const KEYWORDS = new Set([
 class Parser {
   i = 0;
   loopDepth = 0;
-  constructor(private toks: Tok[], private lines: string[] = []) {}
+  constructor(private toks: (Tok & TokPos)[], private lines: string[] = []) {}
+
+  /** remember the source text of an expression, for showing how it was evaluated */
+  src<T extends Expr>(start: number, e: T): T {
+    const a = this.toks[start];
+    const b = this.toks[this.i - 1];
+    if (!e.src && a && b && a.line === b.line && a.col !== undefined && b.end !== undefined) {
+      e.src = (this.lines[a.line - 1] ?? "").slice(a.col, b.end);
+    }
+    return e;
+  }
 
   peek(o = 0) { return this.toks[this.i + o]; }
   next() { return this.toks[this.i++]; }
@@ -278,23 +290,25 @@ class Parser {
 
     if (t.type === "name" && t.value === "if") {
       this.next();
-      const branches: { cond: Expr; body: Stmt[] }[] = [];
+      const branches: { cond: Expr; body: Stmt[]; line: number }[] = [];
       const cond = this.expr();
       this.colon("if", line);
-      branches.push({ cond, body: this.block("if", line) });
+      branches.push({ cond, body: this.block("if", line), line });
       let orelse: Stmt[] | null = null;
+      let elseLine = 0;
       while (this.isName("elif")) {
         const l = this.next().line;
         const c = this.expr();
         this.colon("elif", l);
-        branches.push({ cond: c, body: this.block("elif", l) });
+        branches.push({ cond: c, body: this.block("elif", l), line: l });
       }
       if (this.isName("else")) {
         const l = this.next().line;
+        elseLine = l;
         this.colon("else", l);
         orelse = this.block("else", l);
       }
-      return { t: "if", line, branches, orelse };
+      return { t: "if", line, branches, orelse, elseLine };
     }
 
     if (t.type === "name" && (t.value === "elif" || t.value === "else")) {
@@ -350,20 +364,24 @@ class Parser {
   expr(): Expr { return this.orExpr(); }
 
   orExpr(): Expr {
+    const s = this.i;
     let l = this.andExpr();
-    while (this.isName("or")) { this.next(); l = { t: "bool", op: "or", l, r: this.andExpr() }; }
-    return l;
+    while (this.isName("or")) { this.next(); l = this.src(s, { t: "bool", op: "or", l, r: this.andExpr() }); }
+    return this.src(s, l);
   }
   andExpr(): Expr {
+    const s = this.i;
     let l = this.notExpr();
-    while (this.isName("and")) { this.next(); l = { t: "bool", op: "and", l, r: this.notExpr() }; }
-    return l;
+    while (this.isName("and")) { this.next(); l = this.src(s, { t: "bool", op: "and", l, r: this.notExpr() }); }
+    return this.src(s, l);
   }
   notExpr(): Expr {
-    if (this.isName("not")) { this.next(); return { t: "not", e: this.notExpr() }; }
-    return this.comparison();
+    const s = this.i;
+    if (this.isName("not")) { this.next(); return this.src(s, { t: "not", e: this.notExpr() }); }
+    return this.src(s, this.comparison());
   }
   comparison(): Expr {
+    const s0 = this.i;
     const first = this.arith();
     const ops: string[] = [];
     const items: Expr[] = [first];
@@ -386,9 +404,13 @@ class Parser {
         items.push(this.arith());
       } else break;
     }
-    return ops.length ? { t: "cmp", ops, items, line } : first;
+    return this.src(s0, ops.length ? { t: "cmp", ops, items, line } : first);
   }
   arith(): Expr {
+    const s = this.i;
+    return this.src(s, this.arith0());
+  }
+  arith0(): Expr {
     let l = this.term();
     while (this.isOp("+") || this.isOp("-")) {
       const op = this.next();
@@ -438,6 +460,10 @@ class Parser {
     return e;
   }
   atom(): Expr {
+    const s = this.i;
+    return this.src(s, this.atom0());
+  }
+  atom0(): Expr {
     const t = this.next();
     if (t.type === "num") return { t: "lit", v: t.value };
     if (t.type === "str") return { t: "lit", v: t.value };
@@ -602,7 +628,39 @@ export type CheckEvent = {
   loops: LoopInfo[];
 };
 
-export type ExecEvent = PrintEvent | CheckEvent;
+/** How a condition was worked out, for showing step by step. */
+export type TraceNode = {
+  src: string; // the code, e.g. "weight <= limit"
+  shown?: string; // with values filled in, e.g. "65 <= 100"
+  value: string; // e.g. "True"
+  truthy: boolean;
+  kind: "value" | "compare" | "and" | "or" | "not";
+  skipped?: boolean; // not evaluated because of short-circuiting
+  kids: TraceNode[];
+};
+
+/** An if / elif / else line was reached. */
+export type BranchEvent = {
+  kind: "branch";
+  line: number;
+  keyword: "if" | "elif" | "else";
+  trace: TraceNode | null; // null for else
+  taken: boolean;
+  vars: Record<string, string>;
+  loops: LoopInfo[];
+};
+
+/** A variable was given a value. */
+export type AssignEvent = {
+  kind: "assign";
+  line: number;
+  name: string;
+  value: string;
+  vars: Record<string, string>;
+  loops: LoopInfo[];
+};
+
+export type ExecEvent = PrintEvent | CheckEvent | BranchEvent | AssignEvent;
 
 export type RunResult = {
   events: ExecEvent[];
@@ -611,10 +669,15 @@ export type RunResult = {
   usedWhile: boolean;
   /** how many times print( appears in the source code */
   printCalls: number;
-  /** every name/keyword that appears in the source code (for, if, range, ...) */
-  names: string[];
   /** the program ran too long (infinite loop or too many prints) */
   runaway: boolean;
+  /** every variable's value when the program ended */
+  vars: Record<string, Val>;
+  usedIf: boolean;
+  usedElse: boolean;
+  usedElif: boolean;
+  /** every name/keyword that appears in the source code (for, if, range, ...) */
+  names: string[];
 };
 
 class BreakSig {}
@@ -629,6 +692,50 @@ class Machine {
   events: ExecEvent[] = [];
   prints = 0;
   runaway = false;
+
+  push(e: ExecEvent) {
+    if (this.events.length < MAX_EVENTS) this.events.push(e);
+  }
+
+  loopSnap() {
+    return this.loops.map((l) => ({ ...l }));
+  }
+
+  /** Evaluate a condition and remember how each part came out. */
+  trace(e: Expr): [Val, TraceNode] {
+    const src = e.src ?? "…";
+    if (e.t === "bool") {
+      const [lv, ln] = this.trace(e.l);
+      const shortCut = e.op === "and" ? !truthy(lv) : truthy(lv);
+      if (shortCut) {
+        const skipped: TraceNode = { src: e.r.src ?? "…", value: "", truthy: false, kind: "value", skipped: true, kids: [] };
+        return [lv, { src, value: repr(lv, true), truthy: truthy(lv), kind: e.op, kids: [ln, skipped] }];
+      }
+      const [rv, rn] = this.trace(e.r);
+      return [rv, { src, value: repr(rv, true), truthy: truthy(rv), kind: e.op, kids: [ln, rn] }];
+    }
+    if (e.t === "not") {
+      const [v, n] = this.trace(e.e);
+      const r = !truthy(v);
+      return [r, { src, value: repr(r), truthy: r, kind: "not", kids: [n] }];
+    }
+    if (e.t === "cmp") {
+      const vals = [this.eval(e.items[0])];
+      let ok = true;
+      let k = 0;
+      for (; k < e.ops.length; k++) {
+        const right = this.eval(e.items[k + 1]);
+        vals.push(right);
+        if (!this.compare(e.ops[k], vals[k], right, e.line)) { ok = false; k++; break; }
+      }
+      let shown = repr(vals[0], true);
+      for (let j = 0; j < vals.length - 1; j++) shown += ` ${e.ops[j]} ${repr(vals[j + 1], true)}`;
+      return [ok, { src, shown, value: repr(ok), truthy: ok, kind: "compare", kids: [] }];
+    }
+    const v = this.eval(e);
+    const shown = e.t === "lit" ? undefined : repr(v, true);
+    return [v, { src, shown: shown !== repr(v, true) ? shown : undefined, value: repr(v, true), truthy: truthy(v), kind: "value", kids: [] }];
+  }
 
   snapshot() {
     const vars: Record<string, string> = {};
@@ -675,13 +782,22 @@ class Machine {
           const op = s.op.slice(0, -1);
           this.vars.set(s.name, this.binop(op, this.vars.get(s.name)!, v, s.line));
         }
+        this.push({ kind: "assign", line: s.line, name: s.name, value: repr(this.vars.get(s.name)!, true), vars: this.snapshot(), loops: this.loopSnap() });
         return;
       }
       case "if": {
-        for (const b of s.branches) {
-          if (truthy(this.eval(b.cond))) { this.runBlock(b.body); return; }
+        for (let k = 0; k < s.branches.length; k++) {
+          const b = s.branches[k];
+          if (k > 0) this.tick(b.line);
+          const [v, trace] = this.trace(b.cond);
+          const ok = truthy(v);
+          this.push({ kind: "branch", line: b.line, keyword: k === 0 ? "if" : "elif", trace, taken: ok, vars: this.snapshot(), loops: this.loopSnap() });
+          if (ok) { this.runBlock(b.body); return; }
         }
-        if (s.orelse) this.runBlock(s.orelse);
+        if (s.orelse) {
+          this.push({ kind: "branch", line: s.elseLine, keyword: "else", trace: null, taken: true, vars: this.snapshot(), loops: this.loopSnap() });
+          this.runBlock(s.orelse);
+        }
         return;
       }
       case "for": {
@@ -975,11 +1091,15 @@ class Machine {
   }
 }
 
-export function runPython(src: string): RunResult {
+export function runPython(src: string, inputs: Record<string, Val> = {}): RunResult {
   const m = new Machine();
+  for (const [k, v] of Object.entries(inputs)) m.vars.set(k, v);
   let usedFor = false;
   let usedWhile = false;
   let printCalls = 0;
+  let usedIf = false;
+  let usedElse = false;
+  let usedElif = false;
   let names: string[] = [];
   const done = (error: PyError | null): RunResult => ({
     events: m.events,
@@ -987,13 +1107,20 @@ export function runPython(src: string): RunResult {
     usedFor,
     usedWhile,
     printCalls,
-    names,
     runaway: m.runaway,
+    vars: Object.fromEntries(m.vars),
+    usedIf,
+    usedElse,
+    usedElif,
+    names,
   });
   try {
     const toks = tokenize(src);
     usedFor = toks.some((t) => t.type === "name" && t.value === "for");
     usedWhile = toks.some((t) => t.type === "name" && t.value === "while");
+    usedIf = toks.some((t) => t.type === "name" && t.value === "if");
+    usedElse = toks.some((t) => t.type === "name" && t.value === "else");
+    usedElif = toks.some((t) => t.type === "name" && t.value === "elif");
     names = [...new Set(toks.flatMap((t) => (t.type === "name" ? [t.value] : [])))];
     printCalls = toks.filter((t, k) => t.type === "name" && t.value === "print" && toks[k + 1]?.type === "op" && toks[k + 1].value === "(").length;
     const lines = src.replace(/\r\n?/g, "\n").split("\n");

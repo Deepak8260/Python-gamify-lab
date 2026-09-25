@@ -170,6 +170,13 @@ export default function LevelPlayer({ levelId }: { levelId: string }) {
       return tokenRef.current === token;
     }
 
+    if (ev.kind !== "print") {
+      // if/else lines and assignments: just show them in the code and loop panel
+      setHud({ loops: ev.loops, step: p.played, vars: ev.vars, check: null });
+      await sleep(260 / sp);
+      return tokenRef.current === token;
+    }
+
     setHud({ loops: ev.loops, step: p.played, vars: ev.vars, check: null });
     const v = ev.value;
     const ok = v !== null && Number.isFinite(v);

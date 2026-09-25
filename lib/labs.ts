@@ -26,6 +26,16 @@ export const LABS: Lab[] = [
     levels: 15,
   },
   {
+    slug: "conditions",
+    title: "Condition Lab",
+    tagline: "Get a hiker safely across the canyon by making the right decisions.",
+    concepts: ["if", "elif", "else", "and / or / not"],
+    status: "live",
+    accent: "#10b981",
+    emoji: "🧭",
+    levels: 11,
+  },
+  {
     slug: "variables",
     title: "Variable Vault",
     tagline: "Store, change and swap values to crack the vault.",
@@ -33,15 +43,6 @@ export const LABS: Lab[] = [
     status: "soon",
     accent: "#0ea5e9",
     emoji: "🔐",
-  },
-  {
-    slug: "conditions",
-    title: "If/Else Island",
-    tagline: "Help an explorer choose the right path.",
-    concepts: ["if", "elif", "else"],
-    status: "soon",
-    accent: "#10b981",
-    emoji: "🏝️",
   },
   {
     slug: "lists",

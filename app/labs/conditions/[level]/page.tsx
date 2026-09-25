@@ -1,29 +1,29 @@
 import { notFound } from "next/navigation";
 import type { Metadata } from "next";
 import LevelGate from "@/components/LevelGate";
-import LevelPlayer from "@/components/LevelPlayer";
-import { LOOP_LEVELS, levelIndex } from "@/lib/loopLevels";
+import CondPlayer from "@/components/CondPlayer";
+import { COND_LEVELS, condIndex } from "@/lib/condLevels";
 
 export const dynamicParams = false;
 
 export function generateStaticParams() {
-  return LOOP_LEVELS.map((l) => ({ level: l.id }));
+  return COND_LEVELS.map((l) => ({ level: l.id }));
 }
 
 type Props = { params: Promise<{ level: string }> };
 
 export async function generateMetadata({ params }: Props): Promise<Metadata> {
   const { level } = await params;
-  const l = LOOP_LEVELS[levelIndex(level)];
-  return { title: l ? `${l.title} · Loop Lab` : "Loop Lab" };
+  const l = COND_LEVELS[condIndex(level)];
+  return { title: l ? `${l.title} · Condition Lab` : "Condition Lab" };
 }
 
 export default async function Page({ params }: Props) {
   const { level } = await params;
-  if (levelIndex(level) < 0) notFound();
+  if (condIndex(level) < 0) notFound();
   return (
-    <LevelGate lab="loops" levels={LOOP_LEVELS.map(({ id, title }) => ({ id, title }))} levelId={level}>
-      <LevelPlayer key={level} levelId={level} />
+    <LevelGate lab="conditions" levels={COND_LEVELS.map(({ id, title }) => ({ id, title }))} levelId={level}>
+      <CondPlayer key={level} levelId={level} />
     </LevelGate>
   );
 }

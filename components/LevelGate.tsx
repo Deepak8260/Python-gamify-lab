@@ -1,19 +1,25 @@
 "use client";
 
 import Link from "next/link";
+import type { ReactNode } from "react";
 import { Lock } from "lucide-react";
-import LevelPlayer from "./LevelPlayer";
-import { LOOP_LEVELS, levelIndex } from "@/lib/loopLevels";
 import { useProgress } from "@/lib/progress";
 
+type Props = {
+  lab: string;
+  levels: { id: string; title: string }[];
+  levelId: string;
+  children: ReactNode;
+};
+
 /** Levels unlock one after another. */
-export default function LevelGate({ levelId }: { levelId: string }) {
+export default function LevelGate({ lab, levels, levelId, children }: Props) {
   const { ready, done } = useProgress();
   if (!ready) return <main className="app" />;
 
-  const i = levelIndex(levelId);
-  const prev = LOOP_LEVELS[i - 1];
-  if (prev && !done("loops").has(prev.id)) {
+  const i = levels.findIndex((l) => l.id === levelId);
+  const prev = levels[i - 1];
+  if (prev && !done(lab).has(prev.id)) {
     return (
       <main className="app locked-screen">
         <div className="locked-card">
@@ -25,10 +31,10 @@ export default function LevelGate({ levelId }: { levelId: string }) {
             Finish <b>{prev.title}</b> first to unlock it.
           </p>
           <div className="result-actions">
-            <Link className="btn soft" href="/labs/loops">
+            <Link className="btn soft" href={`/labs/${lab}`}>
               All levels
             </Link>
-            <Link className="btn run" href={`/labs/loops/${prev.id}`}>
+            <Link className="btn run" href={`/labs/${lab}/${prev.id}`}>
               Play {prev.title}
             </Link>
           </div>
@@ -36,5 +42,5 @@ export default function LevelGate({ levelId }: { levelId: string }) {
       </main>
     );
   }
-  return <LevelPlayer key={levelId} levelId={levelId} />;
+  return <>{children}</>;
 }
