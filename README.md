@@ -58,34 +58,59 @@ for while loops the condition being checked (`fuel < 50 → True`).
 Also included: Run, Step, Reset, speed (0.5x/1x/2x), confetti, sound with mute, XP, `Ctrl + Enter` to run,
 and phone-friendly layouts. Progress and code are saved in the browser (no backend).
 
-## Condition Lab ("Cross the Bridge")
+## Condition Lab
 
-The game gives the student ordinary Python variables (`bridge_safe`, `weight`, `limit`, `weather`, …).
-The student writes normal Python that sets one answer variable: `cross` (`True`/`False`) or
-`route` (`"A"`, `"B"`, `"C"` or `"wait"`). There are no made-up functions.
+Each level is a small piece of a real system: a sign-up service, a payment gateway, an API gateway, a
+deployment pipeline, a firewall. The game gives the student ordinary Python variables (`age`, `role`,
+`amount`, `port`, …) and the student writes the conditions that set one answer variable, either `True`/`False`
+or one of a few text values (`"approved"`, `"review"`, …). There are no helper functions to call.
 
-Each level runs the same code in several **rounds** with different values, e.g. a safe bridge, then a
-broken one, then a weight of exactly 100 kg. Code that just says `cross = True` fails.
-While it runs, a **decision panel** shows how Python works out each `if`/`elif`
-(`weight <= limit → 65 <= 100 → True`, `and`/`or` parts that get skipped, `else` taken).
+**Visible and hidden tests.** Every level runs the same code against a few visible cases and then against
+hidden ones: boundaries (17/18/19, exactly the limit), edge cases (0, negative numbers, `""`, unknown text
+values) and, for True/False inputs, often the whole truth table. Hard-coding the visible answers fails. The
+first failing hidden case is replayed so the student can see it.
 
-| # | Level | What it teaches |
-|---|---|---|
-| 1 | Safe to Cross? | a first `if` on a True/False value |
-| 2 | Danger Ahead | the same `if` when the value is False |
-| 3 | Cross or Wait | `else`: the answer must be set every time |
-| 4 | Weight Limit | comparisons (`<=`, boundaries) |
-| 5 | Two Checks | `and` |
-| 6 | Wind Warning | values change after Run: use variables, not copied numbers |
-| 7 | Three Bridges | `if / elif / else` with ranges |
-| 8 | Emergency Pass | `or`, brackets, comparing text (`== "clear"`) |
-| 9 | Ranger's Orders | rule priority: the order of `if / elif` |
-| 10 | Night & Fog | `not` and combined logic |
-| 11 | The Final Crossing (boss) | everything, with no hint about which concept to use |
+**Mistake diagnosis.** Each level lists `pitfalls`: common wrong solutions such as `>` instead of `>=`,
+`or` instead of `and`, `A and B or C` without brackets, a broad `elif` first, separate `if`s overwriting each
+other, the De Morgan mistake, or `port == 80 or 443`. When a run fails, the student's answers over all cases
+are compared with each pitfall, and a match gives a targeted explanation. Success explains why the logic works.
 
-Mistakes are shown in the game: the hiker falls through a broken bridge, waits when it was safe,
-takes the wrong bridge, or is confused when the answer variable was never set or has the wrong type
-(`"True"` in quotes, `"a"` instead of `"A"`).
+**Scene.** A request arrives with the values, the decision engine shows how Python works out each
+`if`/`elif` (`weight <= limit → 65 <= 100 → True`, skipped `and`/`or` parts, `else` taken), and the request is
+routed to one outcome. A wrong outcome is marked next to the expected one.
+
+| # | Level | System | Concepts introduced |
+|---|---|---|---|
+| **Foundations** ||||
+| 1 | Age Gate | sign-up service | `if`, comparisons |
+| 2 | Payment Limit | UPI gateway | `if / else` |
+| 3 | Grade Report | result portal | `if / elif / else`, one match only |
+| **Comparisons & Facts** ||||
+| 4 | CPU Alert | server monitor | boundaries (`>` vs `>=`), `==`, rule order |
+| 5 | Train Booking | rail booking | several variables, text, `!=` |
+| **Boolean Logic** ||||
+| 6 | Admin Dashboard | admin portal | `and` |
+| 7 | Loan Eligibility | loan screening | `and` with ranges (`21 <= age <= 60`) |
+| 8 | Express Delivery | delivery planner | `or` |
+| 9 | Login Guard | login service | `not`, De Morgan |
+| 10 | Checkout | checkout service | truthy/falsy (`0`, `""`), edge cases |
+| **Combining Logic** ||||
+| 11 | API Gateway | API gateway | `A and (B or C)`, precedence |
+| 12 | File Access | cloud drive | nested `if` |
+| 13 | Discount Tiers | promotions engine | overlapping rules, `elif` vs separate `if`s |
+| **Real-World Systems** (concept chips hidden) ||||
+| 14 | Deployment Gate | CI/CD pipeline | decision trees, safe default for unknown input |
+| 15 | Warehouse Dispatch | warehouse | validation first, decimals, 0 and negatives |
+| 16 | Firewall Rules | firewall | top-rule priority, `port == 80 or 443` trap |
+| **Boss** ||||
+| 17 | Payment Authorization | card processor | everything, with priorities between outcomes |
+
+**Concept tracking.** Every level lists the concepts it uses and the ones it introduces. `lib/condStats.ts`
+stores runs, failures and diagnosed mistakes in the browser. The lab map shows a concept coverage report:
+which concepts were practised, which are mastered (every level that uses them is complete) and which caused
+mistakes.
+
+To add a level, add an entry to `COND_LEVELS` in `lib/condLevels.ts` and put its id in a track in `COND_TRACKS`.
 
 ## Run it locally
 
@@ -122,7 +147,7 @@ components/
   LabMap.tsx                   level map used by every lab (LoopLabMap, CondLabMap)
   LevelGate.tsx                level locking
   LevelPlayer.tsx              Loop Lab: runs code, plays it back, shows results
-  CondPlayer.tsx, BridgeWorld.tsx   Condition Lab player and canyon scene
+  CondPlayer.tsx, SystemWorld.tsx   Condition Lab player and system scene
   RobotWorld.tsx, Robot.tsx    for-loop world
   RocketWorld.tsx              while-loop world
   LoopHud.tsx                  the loop panel
@@ -130,7 +155,8 @@ components/
 lib/
   interpreter.ts               mini Python interpreter
   loopLevels.ts                Loop Lab levels and judging
-  condLevels.ts                Condition Lab levels, rounds and judging
+  condLevels.ts                Condition Lab levels, tests, judging and mistake diagnosis
+  condStats.ts                 Condition Lab runs, mistakes and concept report
   labs.ts                      list of labs
   progress.ts                  saved progress and XP
   sound.ts                     synthesized sound effects

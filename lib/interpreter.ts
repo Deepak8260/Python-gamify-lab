@@ -451,7 +451,7 @@ class Parser {
         e = { t: "index", target: e, index, line };
       } else if (this.isOp(".")) {
         const t = this.peek();
-        throw new PyError(`Dots like "." aren't needed on line ${t.line}. Just use print() to move the robot.`, t.line);
+        throw new PyError(`Dots like "." aren't supported on line ${t.line}. This game has no methods like .lower(), so use the values directly.`, t.line);
       } else if (this.isOp("(")) {
         const t = this.peek();
         throw new PyError(`Line ${t.line} is trying to call something that isn't a function.`, t.line);

@@ -71,4 +71,7 @@ export const sfx = {
   pop() {
     tone(880, 0.1, { to: 1400, type: "sine", vol: 0.12 });
   },
+  tick() {
+    tone(1200, 0.04, { type: "sine", vol: 0.05 });
+  },
 };

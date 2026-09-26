@@ -5,11 +5,27 @@ import Link from "next/link";
 import { useRouter } from "next/navigation";
 import dynamic from "next/dynamic";
 import confetti from "canvas-confetti";
-import { Play, StepForward, RotateCcw, Lightbulb, ArrowRight, ChevronLeft } from "lucide-react";
-import BridgeWorld, { END_X, ROUTE_Y, SINGLE_Y, START_X, type Decision, type HikerState, type RoundMark } from "./BridgeWorld";
+import { Play, StepForward, RotateCcw, Lightbulb, ArrowRight, ChevronLeft, Lock } from "lucide-react";
+import SystemWorld, { type Decision, type RoundMark, type Stage } from "./SystemWorld";
 import SoundToggle from "./SoundToggle";
 import { runPython, type ExecEvent, type RunResult } from "@/lib/interpreter";
-import { COND_LEVELS, condIndex, judgeRound, toInputs, type Inputs, type Verdict } from "@/lib/condLevels";
+import {
+  COND_LEVELS,
+  CONCEPTS,
+  allCases,
+  condIndex,
+  diagnose,
+  judgeCase,
+  outcomeOf,
+  py,
+  toInputs,
+  type Case,
+  type Diagnosis,
+  type Inputs,
+  type Value,
+  type Verdict,
+} from "@/lib/condLevels";
+import { recordRun } from "@/lib/condStats";
 import { useProgress, XP_PER_LEVEL } from "@/lib/progress";
 import { sfx } from "@/lib/sound";
 
@@ -24,40 +40,33 @@ type Phase = "idle" | "running" | "stepping" | "finished";
 type Item =
   | { t: "round"; r: number }
   | { t: "event"; r: number; ev: ExecEvent }
-  | { t: "outcome"; r: number; verdict: Verdict; res: RunResult };
+  | { t: "outcome"; r: number; verdict: Verdict }
+  | { t: "hidden"; upto: number }; // hidden cases V..upto-1 all passed
 type Result = {
   kind: "success" | "fail" | "error";
   title: string;
   message: string;
+  diagnosis?: string;
   situation?: string;
-  passed?: number; // rounds passed before the one that failed
+  progress?: string;
   emoji: string;
 };
 type Line = { text: string; kind: "round" | "print" | "assign" | "ok" | "bad" };
 
 const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
-const fmtVal = (v: boolean | number | string) => (typeof v === "boolean" ? (v ? "True" : "False") : typeof v === "string" ? `"${v}"` : String(v));
-/** The story part of a round event, without the "name: old → new" details. */
-const eventNote = (ev?: string) => {
-  const note = ev?.replace(/[.,]?\s*\w+: [^.]*$/, "").trim();
-  return note && /[a-z]/i.test(note) ? note : null;
-};
+const situation = (i: Inputs) => Object.entries(i).map(([k, v]) => `${k} = ${py(v)}`).join(",  ");
+const DIFFICULTY: Record<string, string> = { beginner: "Beginner", easy: "Easy", medium: "Medium", hard: "Hard", expert: "Expert" };
 
-/** What the hiker should do, in plain words (never the code that does it). */
-const expectText = (v: boolean | string, journey: boolean) =>
-  v === true ? (journey ? "🚶 walks on" : "🚶 crosses") : v === false || v === "wait" ? "✋ waits" : `🌉 takes Bridge ${v}`;
-
-/** Wraps variable names, True/False and "text" in <code> so the question is easy to scan. */
+/** Wraps variable names, True/False and "text" in <code> so rules are easy to scan. */
 function CodeText({ text, names }: { text: string; names: string[] }) {
-  const re = new RegExp(`(\\b\\w+ = (?:True|False|"[^"]*")|\\b(?:${[...names, "True", "False"].join("|")})\\b|"[^"]*")`, "g");
+  const words = [...names, "True", "False"].map((w) => w.replace(/[^\w]/g, "")).filter(Boolean);
+  const re = new RegExp(`(\\b\\w+ = (?:True|False|"[^"]*")|\\b(?:${words.join("|")})\\b|"[^"]*")`, "g");
   return (
     <>
       {text.split(re).map((part, k) => (k % 2 ? <code key={k}>{part}</code> : part))}
     </>
   );
 }
-
-const situation = (i: Inputs) => Object.entries(i).map(([k, v]) => `${k} = ${fmtVal(v)}`).join(",  ");
 
 export default function CondPlayer({ levelId }: { levelId: string }) {
   const index = condIndex(levelId);
@@ -66,9 +75,13 @@ export default function CondPlayer({ levelId }: { levelId: string }) {
   const router = useRouter();
   const { markDone, totalXp, done } = useProgress();
   const doneSet = done(LAB);
-  const preview = level.preview ?? level.rounds[0].inputs;
+  const V = level.visible.length;
+  const total = V + level.hidden.length;
+  const preview = level.visible[0].inputs;
+  const names = [...Object.keys(level.given), level.output.name];
+  const outName = level.output.name;
 
-  const starter = `# The game already set: ${Object.keys(level.given).join(", ")}\n# Don't type their values. Just use their names.\n# Now decide what the hiker should do.\n\n`;
+  const starter = `# The system already set: ${Object.keys(level.given).join(", ")}\n# Use these names in your conditions. Don't retype their values.\n# Your code must set: ${outName}\n\n`;
   const codeKey = `codeplay-code-${LAB}-${level.id}`;
   const [code, setCodeState] = useState(starter);
   const codeRef = useRef(starter);
@@ -84,16 +97,18 @@ export default function CondPlayer({ levelId }: { levelId: string }) {
     _setPhase(p);
   };
 
-  const startY = level.scene === "bridge" ? SINGLE_Y : ROUTE_Y.B;
-  const homeHiker = (): HikerState => ({ x: START_X, y: startY, facing: 1, mode: "idle", dur: 0, say: null });
-
+  const pendingMarks = (): RoundMark[] => Array.from({ length: total }, () => "pending");
   const [inputs, setInputs] = useState<Inputs>(preview);
   const [changed, setChanged] = useState<Set<string>>(new Set());
-  const [hiker, setHiker] = useState<HikerState>(homeHiker);
-  const [broken, setBroken] = useState<string | null>(null);
-  const [picked, setPicked] = useState<string | null>(null);
+  const [stage, setStage] = useState<Stage>("idle");
+  const [picked, setPicked] = useState<Value | null>(null);
+  const [expected, setExpected] = useState<Value | null>(null);
+  const [pickOk, setPickOk] = useState<boolean | null>(null);
   const [decision, setDecision] = useState<Decision>(null);
-  const [marks, setMarks] = useState<RoundMark[]>(level.rounds.map(() => "pending"));
+  const [assigned, setAssigned] = useState<string | null>(null);
+  const [marks, setMarks] = useState<RoundMark[]>(pendingMarks);
+  const [testLabel, setTestLabel] = useState<string | null>(null);
+  const [roundKey, setRoundKey] = useState(0);
   const [banner, setBanner] = useState<{ text: string; key: number } | null>(null);
   const [lines, setLines] = useState<Line[]>([]);
   const [activeLine, setActiveLine] = useState<number | null>(null);
@@ -108,7 +123,7 @@ export default function CondPlayer({ levelId }: { levelId: string }) {
   const tokenRef = useRef(0);
   const stepBusy = useRef(false);
   const shownInputs = useRef<Inputs>(preview);
-  const prog = useRef<{ items: Item[]; idx: number; allOk: boolean; results: RunResult[] } | null>(null);
+  const prog = useRef<{ items: Item[]; idx: number; cases: Case[]; results: RunResult[]; verdicts: Verdict[] } | null>(null);
   const consoleEnd = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
@@ -123,6 +138,8 @@ export default function CondPlayer({ levelId }: { levelId: string }) {
     consoleEnd.current?.scrollIntoView({ block: "nearest" });
   }, [lines]);
 
+  const caseLabel = (r: number) => (r < V ? `Test ${r + 1} of ${V}` : `Hidden test ${r - V + 1} of ${total - V}`);
+
   const resetWorld = (keepError = false) => {
     tokenRef.current++;
     stepBusy.current = false;
@@ -130,11 +147,14 @@ export default function CondPlayer({ levelId }: { levelId: string }) {
     shownInputs.current = preview;
     setInputs(preview);
     setChanged(new Set());
-    setHiker(homeHiker());
-    setBroken(null);
+    setStage("idle");
     setPicked(null);
+    setExpected(null);
+    setPickOk(null);
     setDecision(null);
-    setMarks(level.rounds.map(() => "pending"));
+    setAssigned(null);
+    setMarks(pendingMarks());
+    setTestLabel(null);
     setBanner(null);
     setLines([]);
     setActiveLine(null);
@@ -154,60 +174,89 @@ export default function CondPlayer({ levelId }: { levelId: string }) {
     if (phaseRef.current === "finished") resetWorld();
   };
 
-  /** Run the code once per round, then build the timeline to animate. */
+  /**
+   * Run the code against EVERY case up front (visible and hidden), then build
+   * the timeline: visible cases play one by one, hidden cases tick past, and
+   * the first failing hidden case is replayed so the student can see it.
+   */
   const prepare = () => {
     resetWorld();
-    const items: Item[] = [];
-    const results: RunResult[] = [];
-    let allOk = true;
-    level.rounds.forEach((round, r) => {
-      if (!allOk) return;
-      const inp = toInputs(round.inputs);
-      if (level.output.start !== undefined) inp[level.output.name] = level.output.start;
-      const res = runPython(codeRef.current, inp);
-      results.push(res);
-      const verdict = judgeRound(level, round, res);
-      items.push({ t: "round", r });
-      res.events.slice(0, 40).forEach((ev) => items.push({ t: "event", r, ev }));
-      items.push({ t: "outcome", r, verdict, res });
-      if (!verdict.ok) allOk = false;
+    const cases = allCases(level);
+    const results = cases.map((c) => {
+      const inp = toInputs(c.inputs);
+      if (level.output.start !== undefined) inp[outName] = level.output.start;
+      return runPython(codeRef.current, inp);
     });
-    prog.current = { items, idx: 0, allOk, results };
-  };
-
-  const moveHiker = async (h: Partial<HikerState>, dur: number, token: number) => {
-    setHiker((s) => ({ ...s, ...h, dur }));
-    await sleep(dur);
-    return tokenRef.current === token;
+    const verdicts = cases.map((c, k) => judgeCase(level, c.inputs, results[k]));
+    const items: Item[] = [];
+    const playCase = (r: number) => {
+      items.push({ t: "round", r });
+      results[r].events.slice(0, 40).forEach((ev) => items.push({ t: "event", r, ev }));
+      items.push({ t: "outcome", r, verdict: verdicts[r] });
+    };
+    let failed = false;
+    for (let r = 0; r < V && !failed; r++) {
+      playCase(r);
+      failed = !verdicts[r].ok;
+    }
+    if (!failed && total > V) {
+      const bad = verdicts.findIndex((v, k) => k >= V && !v.ok);
+      items.push({ t: "hidden", upto: bad < 0 ? total : bad });
+      if (bad >= 0) playCase(bad);
+    }
+    prog.current = { items, idx: 0, cases, results, verdicts };
   };
 
   const play = async (item: Item, token: number): Promise<boolean> => {
     const sp = speedRef.current;
+    const cases = prog.current!.cases;
 
     if (item.t === "round") {
-      const round = level.rounds[item.r];
+      const round = cases[item.r];
       const prev = shownInputs.current;
       const ch = new Set(Object.keys(round.inputs).filter((k) => prev[k] !== round.inputs[k]));
       shownInputs.current = round.inputs;
       setMarks((m) => m.map((x, k) => (k === item.r ? "now" : x)));
-      setHiker(level.journey && item.r > 0 ? (h) => ({ ...h, mode: "idle", say: null, dur: 0 }) : { ...homeHiker(), dur: 0 });
-      setBroken(null);
+      setStage("incoming");
       setPicked(null);
+      setExpected(null);
+      setPickOk(null);
       setDecision(null);
+      setAssigned(null);
       setActiveLine(null);
       setInputs(round.inputs);
       setChanged(ch);
-      if (level.rounds.length > 1) setLines((l) => [...l, { text: `Test ${item.r + 1}: ${situation(round.inputs)}`, kind: "round" }]);
-      const many = level.rounds.length > 1;
-      const tag = many ? `Test ${item.r + 1} of ${level.rounds.length}` : "";
-      if (round.event || many) {
-        setBanner({ text: [tag, round.event].filter(Boolean).join(" · "), key: Date.now() });
-        sfx.pop();
-        await sleep(round.event ? Math.max(1100, 1800 / sp) : Math.max(800, 1100 / sp));
-        setBanner(null);
-      } else {
-        await sleep(350 / sp);
+      setTestLabel(caseLabel(item.r));
+      setRoundKey((k) => k + 1);
+      setLines((l) => [...l, { text: `${item.r < V ? `Test ${item.r + 1}` : `Hidden test ${item.r - V + 1}`}: ${situation(round.inputs)}`, kind: "round" }]);
+      const text = item.r < V ? [caseLabel(item.r), round.note].filter(Boolean).join(" · ") : `🔒 ${caseLabel(item.r)} failed. Here it is:`;
+      setBanner({ text, key: Date.now() });
+      sfx.pop();
+      await sleep(item.r < V ? Math.max(900, 1500 / sp) : Math.max(1300, 2000 / sp));
+      setBanner(null);
+      setStage("deciding");
+      return tokenRef.current === token;
+    }
+
+    if (item.t === "hidden") {
+      const n = total - V;
+      setStage("idle");
+      setDecision(null);
+      setAssigned(null);
+      setTestLabel(null);
+      setBanner({ text: `🔒 Now ${n} hidden test${n === 1 ? "" : "s"} with other values…`, key: Date.now() });
+      sfx.pop();
+      await sleep(Math.max(700, 1100 / sp));
+      for (let k = V; k < item.upto; k++) {
+        if (tokenRef.current !== token) return false;
+        setInputs(cases[k].inputs);
+        setMarks((m) => m.map((x, j) => (j === k ? "ok" : x)));
+        sfx.tick();
+        await sleep(Math.max(70, 160 / sp));
       }
+      setBanner(null);
+      const passed = item.upto - V;
+      setLines((l) => [...l, { text: `Hidden tests: ${passed} of ${n} passed${passed < n ? ", then one failed" : ""}`, kind: passed < n ? "bad" : "ok" }]);
       return tokenRef.current === token;
     }
 
@@ -220,11 +269,7 @@ export default function CondPlayer({ levelId }: { levelId: string }) {
         await sleep((ev.keyword === "else" ? 800 : 1500) / sp);
       } else if (ev.kind === "assign") {
         setLines((l) => [...l, { text: `${ev.name} = ${ev.value}`, kind: "assign" }]);
-        if (ev.name === level.output.name) {
-          const say =
-            level.output.name === "cross" ? (ev.value === "True" ? "Let's go! 👍" : ev.value === "False" ? "I'll wait ✋" : "?") : `route ${ev.value}`;
-          setHiker((h) => ({ ...h, say }));
-        }
+        setAssigned(`${ev.name} = ${ev.value}`);
         await sleep(650 / sp);
       } else if (ev.kind === "print") {
         setLines((l) => [...l, { text: ev.text, kind: "print" }]);
@@ -235,78 +280,26 @@ export default function CondPlayer({ levelId }: { levelId: string }) {
       return tokenRef.current === token;
     }
 
-    // outcome: the hiker acts on the decision
+    // outcome: the request is routed to what the code decided
     const { verdict } = item;
     setActiveLine(null);
     const good = verdict.ok;
     const mark = () => setMarks((m) => m.map((x, k) => (k === item.r ? (good ? "ok" : "bad") : x)));
 
     if (verdict.kind === "error" || verdict.kind === "missing" || verdict.kind === "type") {
-      setHiker((h) => ({ ...h, mode: "confused", say: "🤔 ?" }));
+      setStage("stuck");
       sfx.fail();
       await sleep(900 / sp);
       mark();
       return false;
     }
-
-    const got = verdict.got;
-    const walk = 1500 / sp;
-    if (level.scene === "bridge") {
-      const target = level.journey?.[item.r] ?? END_X;
-      if (got === true) {
-        setHiker((h) => ({ ...h, say: null }));
-        if (good && target < 50) {
-          // walk on to the next stop, which is before the middle of the bridge
-          if (!(await moveHiker({ x: target, y: SINGLE_Y + 4, mode: "walk" }, walk, token))) return false;
-          setHiker((h) => ({ ...h, mode: "nod", say: "✓" }));
-          sfx.land();
-        } else if (!(await moveHiker({ x: 50, y: SINGLE_Y + 5, mode: "walk" }, (level.journey?.[item.r - 1] ?? START_X) > 30 ? walk / 2 : walk, token))) return false;
-        else if (good) {
-          if (!(await moveHiker({ x: END_X, y: SINGLE_Y, mode: "walk" }, walk, token))) return false;
-          setHiker((h) => ({ ...h, mode: "cheer", say: "✓" }));
-          sfx.success();
-        } else {
-          setBroken("single");
-          sfx.fall();
-          await moveHiker({ y: 93, mode: "fall" }, 700, token);
-          await sleep(700);
-        }
-      } else {
-        if (good) {
-          setHiker((h) => ({ ...h, mode: "nod", say: level.journey && item.r > 0 ? "Waiting for repairs ✋" : "Good call ✓" }));
-          sfx.land();
-        } else {
-          setHiker((h) => ({ ...h, mode: "sad", say: "It was safe… 😕" }));
-          sfx.fail();
-        }
-        await sleep(1100 / sp);
-      }
-    } else {
-      const r = String(got);
-      setHiker((h) => ({ ...h, say: null }));
-      if (r === "wait") {
-        setHiker((h) => ({ ...h, mode: good ? "nod" : "sad", say: good ? "Waiting it out ✓" : "Why wait? 😕" }));
-        good ? sfx.land() : sfx.fail();
-        await sleep(1100 / sp);
-      } else {
-        setPicked(r);
-        const y = ROUTE_Y[r];
-        if (!(await moveHiker({ x: START_X + 5, y, mode: "walk" }, 700 / sp, token))) return false;
-        if (!(await moveHiker({ x: 50, y: y + 5, mode: "walk" }, walk, token))) return false;
-        if (good) {
-          if (!(await moveHiker({ x: END_X, y, mode: "walk" }, walk, token))) return false;
-          setHiker((h) => ({ ...h, mode: "cheer", say: "✓" }));
-          sfx.success();
-        } else {
-          setHiker((h) => ({ ...h, mode: "sad", say: "Wrong bridge! ✗" }));
-          sfx.fail();
-          await sleep(700 / sp);
-          if (!(await moveHiker({ x: START_X + 5, y, facing: -1, mode: "walk" }, walk, token))) return false;
-          setHiker((h) => ({ ...h, facing: 1, mode: "sad" }));
-        }
-      }
-    }
-    await sleep(600 / sp);
+    setPicked(verdict.got);
+    setExpected(verdict.expected);
+    setPickOk(good);
+    setStage("routed");
+    if (good) sfx.land();
+    else sfx.fail();
+    await sleep((good ? 1000 : 1400) / sp);
     mark();
     return tokenRef.current === token && good;
   };
@@ -316,51 +309,58 @@ export default function CondPlayer({ levelId }: { levelId: string }) {
     if (tokenRef.current !== token || !p) return;
     const last = p.items[p.items.length - 1];
     let r: Result;
+    let ok = false;
+    let mistake: { tag: string; concept?: Diagnosis["concept"] } | undefined;
+
     if (last && last.t === "outcome" && !last.verdict.ok) {
       const v = last.verdict;
-      const round = level.rounds[last.r];
+      const round = p.cases[last.r];
       if (v.kind === "error") {
-        setErrorLine(last.res.error?.line ?? null);
+        setErrorLine(p.results[last.r].error?.line ?? null);
         r = { kind: "error", title: v.title, message: v.message, emoji: "⚠️" };
+        mistake = { tag: "syntax" };
       } else {
+        const d = diagnose(level, p.cases, p.verdicts);
+        mistake = d ?? { tag: "wrong-answer" };
+        const hiddenFail = last.r >= V;
         r = {
           kind: "fail",
           title: v.title,
           message: v.message,
-          situation: `${level.rounds.length > 1 ? `Test ${last.r + 1} · ` : ""}${situation(round.inputs)}`,
-          passed: last.r,
-          emoji: v.kind === "missing" || v.kind === "type" ? "🤔" : v.title === "Splash!" ? "💦" : "🧭",
+          diagnosis: d?.message || undefined,
+          situation: `${hiddenFail ? `Hidden test ${last.r - V + 1}` : `Test ${last.r + 1}`} · ${situation(round.inputs)}`,
+          progress: hiddenFail
+            ? `✓ All ${V} visible tests passed, but hidden test ${last.r - V + 1} of ${total - V} failed`
+            : last.r > 0
+              ? `✓ ${last.r === 1 ? "Test 1 passed" : `Tests 1–${last.r} passed`}, but test ${last.r + 1} of ${V} failed`
+              : undefined,
+          emoji: v.kind === "missing" || v.kind === "type" ? "🤔" : v.title === "Let through by mistake" ? "🚨" : "🧭",
         };
       }
     } else {
-      const missing = (level.mustUse ?? []).filter((w) => !p.results[0][w === "if" ? "usedIf" : w === "else" ? "usedElse" : "usedElif"]);
+      const missing = (level.mustUse ?? []).filter((m) => !p.results[0].names.includes(m.word));
       if (missing.length) {
-        r = {
-          kind: "fail",
-          title: "So close!",
-          message: `Your code sends the hiker over without checking anything. What if the bridge was not safe? Let ${Object.keys(level.given)[0]} decide.`,
-          emoji: "🤔",
-        };
+        r = { kind: "fail", title: "So close!", message: missing[0].message, emoji: "🤔" };
+        mistake = { tag: `must-use-${missing[0].word}`, concept: "if" };
       } else {
+        ok = true;
         r = {
           kind: "success",
           title: level.boss ? "Boss defeated!" : "Level complete!",
-          message:
-            level.journey
-              ? "The hiker got all the way across, and waited when the bridge was broken."
-              : level.rounds.length > 1
-              ? `Your code made the right choice in ${level.rounds.length === 2 ? "both" : `all ${level.rounds.length}`} tests.`
-              : "Your code checked the bridge and made the right choice.",
+          message: level.success,
+          progress: `✓ ${V} visible + ${total - V} hidden tests passed`,
           emoji: level.boss ? "🏆" : "🎉",
         };
       }
     }
 
+    recordRun(level, ok, ok ? undefined : mistake);
     setActiveLine(null);
     setPhase("finished");
     setResult(r);
-    if (r.kind === "success") {
+    if (ok) {
       markDone(LAB, level.id);
+      sfx.success();
       celebrate();
       setTimeout(() => tokenRef.current === token && setShowCard(true), 700);
     } else {
@@ -411,7 +411,17 @@ export default function CondPlayer({ levelId }: { levelId: string }) {
   };
 
   const busy = phase === "running" || phase === "stepping";
-  const total = prog.current?.items.length ?? 0;
+  const itemCount = prog.current?.items.length ?? 0;
+  const hiddenDone = marks.slice(V).filter((m) => m === "ok").length;
+  const hiddenBad = marks.slice(V).some((m) => m === "bad");
+  const outLabel = (v: Value) => {
+    const o = outcomeOf(level, v);
+    return (
+      <>
+        <code>{py(v)}</code> {o && `${o.icon} ${o.label}`}
+      </>
+    );
+  };
 
   const card = result && showCard && (
     <div className={`result ${result.kind}`} role="status" aria-live="assertive">
@@ -420,12 +430,14 @@ export default function CondPlayer({ levelId }: { levelId: string }) {
           {result.emoji}
         </div>
         <h2>{result.title}</h2>
-        {!!result.passed && (
-          <div className="result-passed">
-            ✓ {result.passed === 1 ? "Test 1 passed" : `Tests 1–${result.passed} passed`}, but test {result.passed + 1} of {level.rounds.length} failed
+        {result.progress && <div className={`result-passed ${result.kind === "success" ? "all" : ""}`}>{result.progress}</div>}
+        <p>{result.message}</p>
+        {result.diagnosis && (
+          <div className="result-diagnosis">
+            <b>🔎 What went wrong</b>
+            <span>{result.diagnosis}</span>
           </div>
         )}
-        <p>{result.message}</p>
         {result.situation && (
           <div className="result-path">
             <span>failed on</span> {result.situation}
@@ -446,7 +458,7 @@ export default function CondPlayer({ levelId }: { levelId: string }) {
                 </button>
               ) : (
                 <button className="btn run" onClick={() => router.push(`/labs/conditions`)} autoFocus>
-                  All levels done!
+                  See your concept report
                   <ArrowRight size={16} />
                 </button>
               )}
@@ -489,28 +501,44 @@ export default function CondPlayer({ levelId }: { levelId: string }) {
 
       <section className="task">
         <div className={`task-icon icon-cond ${level.boss ? "boss" : ""}`} aria-hidden>
-          <span>{level.boss ? "🏆" : "🧭"}</span>
+          <span>{level.system.icon}</span>
         </div>
         <div className="task-text">
-          <h1>{level.title}</h1>
-          <p>{level.goal}</p>
+          <div className="task-title-row">
+            <h1>{level.title}</h1>
+            <span className={`diff-chip diff-${level.difficulty}`}>{DIFFICULTY[level.difficulty]}</span>
+            <span className="sys-chip">{level.system.name}</span>
+          </div>
+          <p>{level.scenario}</p>
+
+          {!level.hideConcepts && (
+            <div className="concept-chips" aria-label="Concepts in this level">
+              {level.concepts.map((c) => (
+                <span key={c} className={level.introduces.includes(c) ? "new" : ""} title={CONCEPTS[c].blurb}>
+                  {level.introduces.includes(c) && <em>new</em>}
+                  {CONCEPTS[c].label}
+                </span>
+              ))}
+            </div>
+          )}
 
           <div className="brief-question">
-            <span className="brief-label">What you need to do</span>
-            <p>{level.task}</p>
+            <span className="brief-label">What your code must decide</span>
+            <p>
+              <CodeText text={level.task} names={names} />
+            </p>
           </div>
 
           <div className="brief-grid">
             <div className="brief-box">
-              <span className="brief-label">Values the game gives you</span>
+              <span className="brief-label">Values the system gives you</span>
               <p className="brief-note">
-                The game already set these for you before your code runs. Don&apos;t type their values yourself, just use their names.
-                {level.rounds.length > 1 && " Their values are different in every test."}
+                These are already set before your code runs, and they change in every test. Use their names; don&apos;t type their values.
               </p>
               <ul className="given-list">
                 {Object.entries(level.given).map(([k, v]) => (
                   <li key={k}>
-                    <code>{k}</code> {v}
+                    <code>{k}</code> <CodeText text={v} names={[]} />
                   </li>
                 ))}
               </ul>
@@ -519,26 +547,33 @@ export default function CondPlayer({ levelId }: { levelId: string }) {
               <span className="brief-label">Rules</span>
               <ul className="brief-reqs">
                 <li>
-                  Give <code>{level.output.name}</code> a value:{" "}
-                  {level.output.name === "cross" ? (
+                  Set <code>{outName}</code> to{" "}
+                  {level.output.outcomes.map((o, k, a) => (
+                    <span key={String(o.value)}>
+                      <code>{py(o.value)}</code>
+                      {k < a.length - 2 ? ", " : k === a.length - 2 ? " or " : ""}
+                    </span>
+                  ))}
+                </li>
+                <li>
+                  {level.output.start !== undefined ? (
                     <>
-                      <code>True</code> means go, <code>False</code> means wait
+                      <code>{outName}</code> starts as <code>{py(level.output.start)}</code>
                     </>
                   ) : (
-                    (level.output.choices ?? []).map((c, k, a) => (
-                      <span key={c}>
-                        <code>&quot;{c}&quot;</code>
-                        {k < a.length - 2 ? ", " : k === a.length - 2 ? " or " : ""}
-                      </span>
-                    ))
+                    <>
+                      <code>{outName}</code> has no starting value: every situation must set it
+                    </>
                   )}
                 </li>
-                {level.rules.slice(1).map((r) => (
+                {level.rules.map((r) => (
                   <li key={r}>
-                    <CodeText text={r} names={[...Object.keys(level.given), level.output.name]} />
+                    <CodeText text={r} names={names} />
                   </li>
                 ))}
-                {level.rounds.length > 1 && <li>Your code must pass all {level.rounds.length} tests below</li>}
+                <li>
+                  Pass all {V} visible tests and {total - V} hidden tests
+                </li>
               </ul>
             </div>
           </div>
@@ -548,33 +583,50 @@ export default function CondPlayer({ levelId }: { levelId: string }) {
               {level.table.title && <div className="rule-table-title">{level.table.title}</div>}
               {level.table.rows.map(([a, b]) => (
                 <div key={a} className="rule-row">
-                  <span>{a}</span>
-                  <span>{b}</span>
+                  <span>
+                    <CodeText text={a} names={names} />
+                  </span>
+                  <span>
+                    <CodeText text={b} names={names} />
+                  </span>
                 </div>
               ))}
             </div>
           )}
 
           <div className="brief-tests">
-            <span className="brief-label">
-              {level.rounds.length > 1 ? `We test your code ${level.rounds.length} times, with different values` : "The test"}
-            </span>
+            <span className="brief-label">Visible tests</span>
             <ol>
-              {level.rounds.map((round, k) => (
+              {level.visible.map((round, k) => (
                 <li key={k} className={`test-${marks[k]}`}>
                   <span className="test-no">{marks[k] === "ok" ? "✓" : marks[k] === "bad" ? "✗" : k + 1}</span>
-                  {eventNote(round.event) && <span className="test-event">{eventNote(round.event)}</span>}
+                  {round.note && <span className="test-event">{round.note}</span>}
                   <code className="test-in">{situation(round.inputs)}</code>
-                  <span className="test-arrow">→ the hiker should</span>
-                  <span className="test-out">{expectText(level.solve(round.inputs), !!level.journey)}</span>
+                  <span className="test-arrow">→ expected</span>
+                  <span className="test-out">{outLabel(level.solve(round.inputs))}</span>
                 </li>
               ))}
+              <li className={`test-hidden ${hiddenBad ? "test-bad" : hiddenDone === total - V ? "test-ok" : ""}`}>
+                <span className="test-no">
+                  <Lock size={11} />
+                </span>
+                <span className="test-event">
+                  + {total - V} hidden tests with other values, including boundaries and edge cases
+                </span>
+                {(hiddenDone > 0 || hiddenBad) && (
+                  <span className="test-out">
+                    {hiddenDone} / {total - V} passed
+                  </span>
+                )}
+              </li>
             </ol>
           </div>
           {hint >= 0 && (
             <div className="hint-text">
               {level.hints.slice(0, hint + 1).map((h, k) => (
-                <p key={k}>💡 {h}</p>
+                <p key={k}>
+                  💡 <CodeText text={h} names={names} />
+                </p>
               ))}
             </div>
           )}
@@ -590,19 +642,25 @@ export default function CondPlayer({ levelId }: { levelId: string }) {
         </button>
       </section>
 
-      <BridgeWorld
-        scene={level.scene}
+      <SystemWorld
+        system={level.system}
+        outcomes={level.output.outcomes}
         inputs={inputs}
         changed={changed}
-        hiker={hiker}
-        broken={broken}
+        stage={stage}
         picked={picked}
+        expected={expected}
+        ok={pickOk}
         decision={decision}
+        assigned={assigned}
         rounds={marks}
+        visibleCount={V}
+        testLabel={testLabel}
+        roundKey={roundKey}
         banner={banner}
       >
         {card}
-      </BridgeWorld>
+      </SystemWorld>
 
       <section className="workbench">
         <div className="panel editor-panel">
@@ -622,7 +680,7 @@ export default function CondPlayer({ levelId }: { levelId: string }) {
               </button>
               <button className="btn" onClick={step} disabled={phase === "running"} title="Run one step at a time" aria-label="Step">
                 <StepForward size={16} />
-                <span className="hide-sm">{phase === "stepping" ? `Step ${stepNo}/${total}` : "Step"}</span>
+                <span className="hide-sm">{phase === "stepping" ? `Step ${stepNo}/${itemCount}` : "Step"}</span>
               </button>
               <button className={`btn run ${phase === "running" ? "is-running" : ""}`} onClick={run} disabled={phase === "running"} title="Run (Ctrl + Enter)">
                 <Play size={16} fill="currentColor" />
@@ -640,9 +698,7 @@ export default function CondPlayer({ levelId }: { levelId: string }) {
             <span className="panel-title">Output</span>
           </div>
           <div className="console">
-            {lines.length === 0 && !result && (
-              <p className="console-empty">Each test, and every value your code sets, will show here.</p>
-            )}
+            {lines.length === 0 && !result && <p className="console-empty">Each test, and every value your code sets, will show here.</p>}
             {lines.map((l, k) => (
               <div key={k} className={`console-line kind-${l.kind}`}>
                 <span className="out">{l.text || " "}</span>

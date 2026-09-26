@@ -1,6 +1,7 @@
 "use client";
 
 import Link from "next/link";
+import type { ReactNode } from "react";
 import { Check, ChevronLeft, Lock, Play } from "lucide-react";
 import { useProgress } from "@/lib/progress";
 import SoundToggle from "./SoundToggle";
@@ -14,13 +15,15 @@ type Props = {
   blurb: string;
   levels: { id: string; title: string }[];
   tracks: MapTrack[];
+  children?: ReactNode; // extra sections below the level map
 };
 
 /** Level map shared by every lab. Levels unlock one after another. */
-export default function LabMap({ slug, eyebrow, title, blurb, levels, tracks }: Props) {
+export default function LabMap({ slug, eyebrow, title, blurb, levels, tracks, children }: Props) {
   const { done, totalXp, ready } = useProgress();
   const d = done(slug);
   const nextUp = levels.find((l) => !d.has(l.id));
+  const doneCount = levels.filter((l) => d.has(l.id)).length; // ignores saved ids of levels that no longer exist
 
   return (
     <main className="app">
@@ -46,16 +49,16 @@ export default function LabMap({ slug, eyebrow, title, blurb, levels, tracks }: 
         <div className="lab-hero-side">
           <div className="lab-progress big">
             <div className="bar">
-              <i style={{ width: `${(d.size / levels.length) * 100}%` }} />
+              <i style={{ width: `${(doneCount / levels.length) * 100}%` }} />
             </div>
             <span>
-              {d.size} / {levels.length} levels
+              {doneCount} / {levels.length} levels
             </span>
           </div>
           {ready && nextUp && (
             <Link className="btn run" href={`/labs/${slug}/${nextUp.id}`}>
               <Play size={16} fill="currentColor" />
-              {d.size ? "Continue" : "Start"}
+              {doneCount ? "Continue" : "Start"}
             </Link>
           )}
         </div>
@@ -101,6 +104,7 @@ export default function LabMap({ slug, eyebrow, title, blurb, levels, tracks }: 
           </div>
         </section>
       ))}
+      {children}
     </main>
   );
 }

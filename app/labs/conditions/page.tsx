@@ -3,7 +3,7 @@ import CondLabMap from "@/components/CondLabMap";
 
 export const metadata: Metadata = {
   title: "Condition Lab · CodePlay Labs",
-  description: "Learn Python if, elif, else and logic by getting a hiker safely across the canyon.",
+  description: "Learn Python if, elif, else and logic by writing the decision logic of real systems: access control, payments, deployments and firewalls.",
 };
 
 export default function Page() {

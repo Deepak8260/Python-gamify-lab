@@ -28,12 +28,12 @@ export const LABS: Lab[] = [
   {
     slug: "conditions",
     title: "Condition Lab",
-    tagline: "Get a hiker safely across the canyon by making the right decisions.",
-    concepts: ["if", "elif", "else", "and / or / not"],
+    tagline: "Write the decision logic behind real systems: logins, payments, deployments and firewalls.",
+    concepts: ["if", "elif", "else", "and / or / not", "nested if"],
     status: "live",
     accent: "#10b981",
     emoji: "🧭",
-    levels: 11,
+    levels: 17,
   },
   {
     slug: "variables",
